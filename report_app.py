@@ -104,6 +104,45 @@ st.markdown(
         box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075) !important;
         border: 1px solid #e0e0e0;
     }
+    /* カレンダーの背景を白に設定 */
+    .react-datepicker {
+        background-color: white !important;
+        color: black !important; /* テキスト色も黒に */
+    }
+    .react-datepicker__header {
+        background-color: white !important;
+        color: black !important;
+    }
+    .react-datepicker__month-container {
+        background-color: white !important;
+        color: black !important;
+    }
+    .react-datepicker__day-name, .react-datepicker__day, .react-datepicker__time-name {
+        color: black !important;
+    }
+    .react-datepicker__current-month {
+        color: black !important;
+    }
+    .react-datepicker__navigation--previous, .react-datepicker__navigation--next {
+        color: black !important;
+    }
+    /* 選択された日付の背景色を赤、文字色を白に設定 */
+    .react-datepicker__day--selected,
+    .react-datepicker__day--range-start,
+    .react-datepicker__day--range-end,
+    .react-datepicker__day--in-range {
+        background-color: #ff4b4b !important; /* Streamlitのデフォルト赤色に近づける */
+        color: white !important;
+    }
+    /* ホバー時の日付の背景色 */
+    .react-datepicker__day:hover {
+        background-color: #e0e0e0 !important; /* ホバー時の背景色を薄いグレーに */
+        color: black !important;
+    }
+    /* 選択できない日付（過去や未来でmin/max_value外）の文字色 */
+    .react-datepicker__day--disabled {
+        color: #ccc !important;
+    }
     </style>
     """,
     unsafe_allow_html=True
@@ -147,7 +186,7 @@ class DBManager:
                 CREATE TABLE IF NOT EXISTS weekly_reports (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     store_id INTEGER NOT NULL,
-                    monday_date TEXT NOT NULL, -- YYYY-MM-DD形式
+                    monday_date TEXT NOT NULL, --YYYY-MM-DD形式
                     
                     daily_reports_json TEXT,    -- 各曜日の動向と要因をJSON文字列で保存
                     topics TEXT,
@@ -489,7 +528,7 @@ class ApparelReportGenerator:
         
         # 修正: daily_reports は既に単一店舗のデータになっていることを想定
         prompt += "【日次レポートデータ】\n"
-        # daily_reports は { '店舗名': { '日付': { 'trend': '', 'factors': [] } } } の形式で来ると想定
+        # daily_reports は { '店舗名': { '日付': { 'trend': '', 'factors': [] } } の形式で来ると想定
         for store, data in daily_reports.items(): # このループは一度しか回らないはず
             prompt += f"- **{store}店**:\n"
             for date, report in data.items():
@@ -807,461 +846,399 @@ def show_report_creation_page():
                 
                 # 日次動向
                 st.session_state['daily_reports_input'][current_store_name_for_input][date_str]['trend'] = st.text_area(
-                    f"{day_name}曜日の動向（{current_store_name_for_input}店）",
+                    f"**{current_date.strftime('%m/%d')} 動向:**",
                     value=st.session_state['daily_reports_input'][current_store_name_for_input].get(date_str, {}).get('trend', ''),
-                    height=100,
-                    key=f"trend_{current_store_name_for_input}_{date_str}"
+                    key=f"{current_store_name_for_input}_{date_str}_trend",
+                    height=80
                 )
-                
                 # 日次要因
-                # リストをカンマ区切り文字列に変換して表示
                 factors_str = ", ".join(st.session_state['daily_reports_input'][current_store_name_for_input].get(date_str, {}).get('factors', []))
-                edited_factors_str = st.text_input(
-                    f"{day_name}曜日の要因（複数ある場合はカンマ区切り、{current_store_name_for_input}店）",
+                new_factors_str = st.text_input(
+                    f"**{current_date.strftime('%m/%d')} 要因 (カンマ区切り):**",
                     value=factors_str,
-                    key=f"factors_{current_store_name_for_input}_{date_str}"
+                    key=f"{current_store_name_for_input}_{date_str}_factors"
                 )
-                # ユーザーが入力した文字列をリストに変換して保存
-                st.session_state['daily_reports_input'][current_store_name_for_input][date_str]['factors'] = [f.strip() for f in edited_factors_str.split(',') if f.strip()]
-                st.markdown("---")
+                st.session_state['daily_reports_input'][current_store_name_for_input][date_str]['factors'] = [f.strip() for f in new_factors_str.split(',') if f.strip()]
 
-    st.header("3. 週全体の補足情報の入力")
-    st.markdown("週全体にわたる重要なトピックス、特に影響の大きかった日、および定量データを入力してください。")
-
-    st.text_area(
-    "今日のトピック（例: 売上向上策、顧客満足度向上、新商品開発）",
-    height=100, # 68px以上であればOK
-    key='topics_input',
-    value=st.session_state.get('topics_input', '') # この value は初回表示時の初期値として機能
-    )
-    st.text_area(
-    "翌日以降のインパクト（翌日以降に影響する要因を具体的に記入）",
-    height=100, # ここは68px以上であることを確認してください
-    key='impact_day_input',
-    value=st.session_state.get('impact_day_input', '')
-    )
-    st.text_area(
-    "定量データ（例: 売上高、客数、客単価、ロス率など具体的な数値）",
-    height=100, # ここは68px以上であることを確認してください
-    key='quantitative_data_input',
-    value=st.session_state.get('quantitative_data_input', '')
-    )
     st.markdown("---")
 
-    st.header("4. 週次レポートの生成")
-    if st.button("AIに週次レポートを生成させる", type="primary"):
-        with st.spinner("AIがレポートを生成中です...しばらくお待ちください。"):
-            # 選択中の店舗の日次レポートのみを抽出
-            selected_store_daily_report = {
-                st.session_state['selected_store_for_report']: st.session_state['daily_reports_input'][st.session_state['selected_store_for_report']]
-            }
+    st.header("3. 週全体の追加情報 (任意)")
+    st.session_state['topics_input'] = st.text_area(
+        "**TOPICS:** 週全体を通して特筆すべき事項や出来事を入力してください。",
+        value=st.session_state['topics_input'],
+        height=100
+    )
+    st.session_state['impact_day_input'] = st.text_area(
+        "**インパクト大:** 特に影響の大きかった日やイベント、その内容を記述してください。",
+        value=st.session_state['impact_day_input'],
+        height=100
+    )
+    st.session_state['quantitative_data_input'] = st.text_area(
+        "**定量データ:** 売上、客数、客単価、プロパー消化率など、週の定量データを入力してください。",
+        value=st.session_state['quantitative_data_input'],
+        height=100
+    )
 
+    st.markdown("---")
+
+    # AIレポート生成ボタン
+    st.header("4. AIによるレポート生成")
+    if st.button("AIレポートを生成", type="primary"):
+        # AI生成用に整形されたデータを作成
+        # daily_reports_input は全店舗のデータを持っているため、現在選択中の店舗のデータのみを渡す
+        selected_store_name = st.session_state['selected_store_for_report']
+        data_for_ai = {
+            'daily_reports': {selected_store_name: st.session_state['daily_reports_input'][selected_store_name]},
+            'topics': st.session_state['topics_input'],
+            'impact_day': st.session_state['impact_day_input'],
+            'quantitative_data': st.session_state['quantitative_data_input']
+        }
+
+        # APIキーの確認
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if not openai_api_key:
+            st.error("OpenAI APIキーが設定されていません。サイドバーの「設定」ページでAPIキーを設定してください。")
+            return
+        
+        # OpenAIクライアントを初期化
+        if not report_generator.initialize_openai(openai_api_key):
+            # エラーメッセージは initialize_openai 内で表示済み
+            return
+
+        with st.spinner("AIがレポートを分析・生成中です... 少々お待ちください。"):
             generated_report = report_generator.analyze_trend_factors(
-                daily_reports=selected_store_daily_report, # 選択された店舗の日次レポートのみを渡す
-                topics=st.session_state['topics_input'],
-                impact_day=st.session_state['impact_day_input'],
-                quantitative_data=st.session_state['quantitative_data_input']
+                data_for_ai['daily_reports'], # ここではすでに選択された店舗のデータのみが渡される
+                data_for_ai['topics'],
+                data_for_ai['impact_day'],
+                data_for_ai['quantitative_data']
             )
 
-            if generated_report:
-                st.session_state['generated_report_output'] = generated_report
-                st.session_state['modified_report_output'] = None # 新規生成時は修正版をリセット
-                st.success("レポートが生成されました！内容を確認し、必要に応じて修正してください。")
-            else:
-                st.error("レポートの生成に失敗しました。入力内容を確認するか、再度お試しください。")
-    
+        if generated_report:
+            st.session_state['generated_report_output'] = generated_report
+            st.session_state['modified_report_output'] = None # AI生成時に修正レポートはクリア
+            st.success("AIレポートの生成が完了しました！")
+            st.experimental_rerun() # ページを再描画して結果を表示
+        else:
+            st.error("AIレポートの生成に失敗しました。入力内容を確認するか、再度お試しください。")
+
     if st.session_state['generated_report_output']:
-        st.subheader("📝 生成された週次レポート (AI生成)")
+        st.subheader("生成された週次レポート (AI生成)")
+        st.markdown("**週全体の動向と要因:**")
+        st.write(st.session_state['generated_report_output'].get('trend', ''))
+        st.markdown("**主な要因:**")
+        for i, factor in enumerate(st.session_state['generated_report_output'].get('factors', [])):
+            st.write(f"- {factor}")
         
-        # AI生成レポートの表示
-        trend_ai = st.session_state['generated_report_output'].get('trend', '')
-        factors_ai = st.session_state['generated_report_output'].get('factors', [])
-        questions_ai = st.session_state['generated_report_output'].get('questions', [])
-
-        st.text_area("動向", value=trend_ai, height=200, disabled=True, key="ai_trend")
-        st.text_area("要因", value="\n".join(factors_ai), height=80, disabled=True, key="ai_factors")
-        st.text_area("質問事項", value="\n".join(questions_ai) if questions_ai else "なし", height=80, disabled=True, key="ai_questions")
+        if st.session_state['generated_report_output'].get('questions'):
+            st.markdown("**AIからの質問:**")
+            for q in st.session_state['generated_report_output'].get('questions', []):
+                st.write(f"- {q}")
         
-        st.markdown("---")
-        st.header("5. 生成されたレポートの修正と保存 (任意)")
-        st.warning("AIが生成したレポートは、必要に応じて修正し、学習データとしてシステムに保存できます。")
+        # レポート保存ボタン
+        if st.button("このレポートを保存", type="secondary"):
+            store_id = db_manager.get_store_id_by_name(st.session_state['selected_store_for_report'])
+            monday_date_str = st.session_state['selected_monday']
+            
+            data_to_save = {
+                'daily_reports': st.session_state['daily_reports_input'][st.session_state['selected_store_for_report']],
+                'topics': st.session_state['topics_input'],
+                'impact_day': st.session_state['impact_day_input'],
+                'quantitative_data': st.session_state['quantitative_data_input']
+            }
+            
+            is_updated = db_manager.save_weekly_data(
+                store_id,
+                monday_date_str,
+                data_to_save,
+                st.session_state['generated_report_output'],
+                st.session_state['modified_report_output'] # まだ修正がないのでNoneの可能性
+            )
+            if is_updated:
+                st.success("週次レポートが更新されました！")
+            else:
+                st.success("週次レポートが保存されました！")
+            st.session_state['report_id_to_edit'] = db_manager.get_weekly_report(store_id, monday_date_str).get('id') # 保存したレポートのIDを取得
 
-        # 修正フォーム
-        with st.form("modify_report_form"):
-            modified_trend = st.text_area("動向 (修正)", value=st.session_state['modified_report_output'].get('trend', trend_ai) if st.session_state['modified_report_output'] else trend_ai, height=200)
-            modified_factors_str = st.text_area("要因 (修正、カンマ区切り)", value=", ".join(st.session_state['modified_report_output'].get('factors', factors_ai)) if st.session_state['modified_report_output'] else ", ".join(factors_ai), height=80)
-            modified_questions_str = st.text_area("質問事項 (修正、カンマ区切り)", value=", ".join(st.session_state['modified_report_output'].get('questions', questions_ai)) if st.session_state['modified_report_output'] else ", ".join(questions_ai), height=80)
-            edit_reason = st.text_area("修正理由（AIの学習に利用されます）", value=st.session_state['modified_report_output'].get('edit_reason', '') if st.session_state['modified_report_output'] else '', height=100)
+    st.markdown("---")
 
-            submitted = st.form_submit_button("修正内容を保存し、AIに学習させる")
-            if submitted:
-                # 修正後の要因と質問事項をリストに変換
-                modified_factors = [f.strip() for f in modified_factors_str.split(',') if f.strip()]
-                modified_questions = [q.strip() for q in modified_questions_str.split(',') if q.strip()]
+    # レポート修正エリア (生成済みレポートがある場合のみ表示)
+    if st.session_state['generated_report_output'] or st.session_state['modified_report_output']:
+        st.header("5. レポートの修正と学習 (任意)")
+        st.info("AIが生成したレポートを修正し、「修正して学習」ボタンを押すと、システムがその修正から学び、将来のレポート精度向上に役立てます。")
 
-                modified_report = {
+        report_to_display = st.session_state['modified_report_output'] if st.session_state['modified_report_output'] else st.session_state['generated_report_output']
+
+        modified_trend = st.text_area(
+            "**修正後の週全体の動向と要因:**",
+            value=report_to_display.get('trend', ''),
+            key="modified_trend_input",
+            height=200
+        )
+        modified_factors_str = st.text_input(
+            "**修正後の主な要因 (カンマ区切り):**",
+            value=", ".join(report_to_display.get('factors', [])),
+            key="modified_factors_input"
+        )
+        modified_questions_str = st.text_area(
+            "**修正後のAIへの質問:**",
+            value="\n".join(report_to_display.get('questions', [])),
+            key="modified_questions_input",
+            height=100
+        )
+        edit_reason = st.text_area(
+            "**修正理由 (学習のために重要です):** 何を、なぜ修正したのかを具体的に記述してください。",
+            key="edit_reason_input",
+            height=100
+        )
+        
+        modified_factors = [f.strip() for f in modified_factors_str.split(',') if f.strip()]
+        modified_questions = [q.strip() for q in modified_questions_str.split('\n') if q.strip()]
+
+        if st.button("修正して学習", type="primary", key="learn_from_correction_button"):
+            if not edit_reason.strip():
+                st.error("修正理由を入力してください。これはAIの学習に不可欠です。")
+            else:
+                modified_report_data = {
                     "trend": modified_trend,
                     "factors": modified_factors,
                     "questions": modified_questions,
                     "edit_reason": edit_reason
                 }
-                st.session_state['modified_report_output'] = modified_report
+                st.session_state['modified_report_output'] = modified_report_data
 
-                # レポートをDBに保存
                 store_id = db_manager.get_store_id_by_name(st.session_state['selected_store_for_report'])
+                monday_date_str = st.session_state['selected_monday']
+                
                 input_data_for_learning = {
                     'daily_reports': {st.session_state['selected_store_for_report']: st.session_state['daily_reports_input'][st.session_state['selected_store_for_report']]},
                     'topics': st.session_state['topics_input'],
                     'impact_day': st.session_state['impact_day_input'],
                     'quantitative_data': st.session_state['quantitative_data_input']
                 }
-                
+
+                # DBに保存し、学習エンジンに渡す
                 db_manager.save_weekly_data(
-                    store_id=store_id,
-                    monday_date_str=st.session_state['selected_monday'],
-                    data={
-                        'daily_reports': st.session_state['daily_reports_input'][st.session_state['selected_store_for_report']],
-                        'topics': st.session_state['topics_input'],
-                        'impact_day': st.session_state['impact_day_input'],
-                        'quantitative_data': st.session_state['quantitative_data_input']
-                    },
-                    original_report=st.session_state['generated_report_output'],
-                    modified_report=modified_report
+                    store_id,
+                    monday_date_str,
+                    input_data_for_learning, # daily_reports_inputを直接渡す
+                    st.session_state['generated_report_output'],
+                    modified_report_data
                 )
                 
-                # 学習エンジンに修正内容を渡す
                 learning_engine.learn_from_correction(
                     input_data=input_data_for_learning,
                     original_output=st.session_state['generated_report_output'],
-                    modified_output=modified_report
+                    modified_output=modified_report_data
                 )
-                st.success("修正内容が保存され、AIの学習に利用されました！")
-                st.experimental_rerun() # 保存後にUIをリフレッシュ
+                st.success("修正内容が保存され、システムが学習しました！")
+                st.experimental_rerun()
 
-        st.markdown("---")
-        st.header("6. レポートのエクスポート")
-        
-        # エクスポートするレポートの選択
-        export_option = st.radio(
-            "エクスポートするレポートを選択してください:",
-            ("AI生成レポート", "修正済みレポート (存在する場合)"),
-            index=1 if st.session_state['modified_report_output'] else 0
-        )
-
-        report_to_export = {}
-        if export_option == "修正済みレポート (存在する場合)" and st.session_state['modified_report_output']:
-            report_to_export = st.session_state['modified_report_output']
-            report_type_label = "修正済み"
-        else:
-            report_to_export = st.session_state['generated_report_output']
-            report_type_label = "AI生成"
-
-        if report_to_export:
-            # プレビュー表示
-            st.subheader(f"📄 {report_type_label}レポート プレビュー")
-            st.write("**動向:**")
-            st.markdown(report_to_export.get('trend', ''))
-            st.write("**要因:**")
-            for factor in report_to_export.get('factors', []):
-                st.markdown(f"- {factor}")
-            st.write("**質問事項:**")
-            if report_to_export.get('questions'):
-                for question in report_to_export.get('questions', []):
-                    st.markdown(f"- {question}")
-            else:
-                st.markdown("なし")
-            
-            # ダウンロードボタン
-            report_text_content = f"週次レポート（{report_type_label}）\n\n" \
-                                  f"対象店舗: {st.session_state['selected_store_for_report']}店\n" \
-                                  f"対象週: {monday_of_week.strftime('%Y年%m月%d日')} 〜 {(monday_of_week + timedelta(days=6)).strftime('%Y年%m%d日')}\n\n" \
-                                  f"■ 動向:\n{report_to_export.get('trend', '')}\n\n" \
-                                  f"■ 要因:\n" + "\n".join([f"- {f}" for f in report_to_export.get('factors', [])]) + "\n\n" \
-                                  f"■ 質問事項:\n" + ("\n".join([f"- {q}" for q in report_to_export.get('questions', [])]) if report_to_export.get('questions') else "なし")
-            
-            # テキストファイルダウンロード
-            st.download_button(
-                label=f"📝 {report_type_label}レポートをテキストでダウンロード",
-                data=report_text_content.encode('utf-8'),
-                file_name=f"{st.session_state['selected_store_for_report']}_{monday_of_week.strftime('%Y%m%d')}_weekly_report_{report_type_label}.txt",
-                mime="text/plain"
-            )
-
-            # JSONファイルダウンロード
-            report_json_content = json.dumps(report_to_export, ensure_ascii=False, indent=2)
-            st.download_button(
-                label=f"📊 {report_type_label}レポートをJSONでダウンロード",
-                data=report_json_content.encode('utf-8'),
-                file_name=f"{st.session_state['selected_store_for_report']}_{monday_of_week.strftime('%Y%m%d')}_weekly_report_{report_type_label}.json",
-                mime="application/json"
-            )
-        else:
-            st.info("エクスポート可能なレポートがありません。")
 
 def show_report_history_page():
     st.title("📚 レポート履歴")
     st.markdown("---")
 
-    st.info("これまでに生成・保存された週次レポートの一覧を確認できます。")
+    st.info("ここでは、これまでに作成・保存された週次レポートの一覧を確認できます。")
 
-    stores = db_manager.get_all_stores()
-    store_names = ["全ての店舗"] + [s[1] for s in stores]
-    
-    selected_store_name = st.selectbox(
-        "表示する店舗を選択してください:",
-        store_names,
-        key="history_store_select"
-    )
+    all_stores = db_manager.get_all_stores()
+    store_names = [s[1] for s in all_stores]
+    store_id_map = {s[1]: s[0] for s in all_stores}
 
-    if selected_store_name == "全ての店舗":
-        store_id_filter = None
+    selected_store_name = st.selectbox("表示する店舗を選択:", ["全店舗"] + store_names)
+
+    if selected_store_name == "全店舗":
+        reports = db_manager.get_all_weekly_reports()
     else:
-        store_id_filter = db_manager.get_store_id_by_name(selected_store_name)
-    
-    all_reports = db_manager.get_all_weekly_reports(store_id=store_id_filter)
+        selected_store_id = store_id_map[selected_store_name]
+        reports = db_manager.get_all_weekly_reports(selected_store_id)
 
-    if not all_reports:
-        st.warning("表示するレポートがありません。")
+    if not reports:
+        st.write("表示するレポートがありません。")
         return
 
-    # データフレーム表示
-    df_data = []
-    for report in all_reports:
-        df_data.append({
-            "ID": report['id'],
-            "店舗名": report['store_name'],
-            "週の開始日": report['monday_date'],
-            "AI生成": "✅" if report['has_generated'] else "❌",
-            "修正済み": "✅" if report['has_modified'] else "❌",
-            "最終更新日時": datetime.fromisoformat(report['timestamp']).strftime('%Y/%m/%d %H:%M:%S')
+    report_data = []
+    for r in reports:
+        # store_name は既に DBManager で追加されているはず
+        report_data.append({
+            "ID": r['id'],
+            "店舗名": db_manager.get_store_name_by_id(r['store_id']), # Store IDから名前を再取得
+            "週次レポート (月曜日)": r['monday_date'],
+            "最終更新日時": datetime.fromisoformat(r['timestamp']).strftime('%Y/%m/%d %H:%M'),
+            "AI生成済み": "はい" if r['has_generated'] else "いいえ",
+            "修正済み": "はい" if r['has_modified'] else "いいえ",
+            "ダウンロード": f"Download_{r['id']}" # ダミーの列名
         })
     
-    df = pd.DataFrame(df_data)
+    df = pd.DataFrame(report_data)
+
+    st.dataframe(df.set_index('ID'), use_container_width=True)
+
+    # レポート詳細表示・ダウンロード
+    st.subheader("レポートの詳細表示とダウンロード")
+    report_ids = [r['id'] for r in reports]
     
-    st.dataframe(df, use_container_width=True, hide_row_index=True)
+    if report_ids:
+        selected_report_id = st.selectbox("詳細を表示・ダウンロードするレポートのIDを選択してください:", report_ids)
 
-    st.markdown("---")
-    st.subheader("レポートの詳細表示とエクスポート")
-    
-    report_ids = [str(r['id']) for r in all_reports]
-    selected_report_id = st.selectbox("詳細を表示・エクスポートするレポートのIDを選択してください:", report_ids)
-
-    if selected_report_id:
-        selected_report_data = next((r for r in all_reports if str(r['id']) == selected_report_id), None)
-        if selected_report_data:
-            st.write(f"### ID: {selected_report_data['id']} のレポート詳細")
+        if selected_report_id:
+            selected_report_db = next((r for r in reports if r['id'] == selected_report_id), None)
             
-            # JSON文字列をロードして表示
-            generated_report_content = json.loads(selected_report_data['generated_report_json']) if selected_report_data['generated_report_json'] else None
-            modified_report_content = json.loads(selected_report_data['modified_report_json']) if selected_report_data['modified_report_json'] else None
-            
-            # タブで表示
-            report_tabs = []
-            if generated_report_content:
-                report_tabs.append("AI生成レポート")
-            if modified_report_content:
-                report_tabs.append("修正済みレポート")
-            
-            if not report_tabs:
-                st.warning("このレポートには、AI生成または修正済みのレポートデータがありません。")
-                return
-
-            selected_report_tab = st.radio("表示するレポートタイプ:", report_tabs)
-
-            displayed_report = {}
-            report_label = ""
-
-            if selected_report_tab == "AI生成レポート" and generated_report_content:
-                displayed_report = generated_report_content
-                report_label = "AI生成レポート"
-            elif selected_report_tab == "修正済みレポート" and modified_report_content:
-                displayed_report = modified_report_content
-                report_label = "修正済みレポート"
-            
-            if displayed_report:
-                st.write(f"#### {report_label}")
-                st.write("**動向:**")
-                st.markdown(displayed_report.get('trend', ''))
-                st.write("**要因:**")
-                for factor in displayed_report.get('factors', []):
-                    st.markdown(f"- {factor}")
-                st.write("**質問事項:**")
-                if displayed_report.get('questions'):
-                    for question in displayed_report.get('questions', []):
-                        st.markdown(f"- {question}")
-                else:
-                    st.markdown("なし")
-
-                if 'edit_reason' in displayed_report and displayed_report['edit_reason']:
-                    st.write("**修正理由:**")
-                    st.markdown(displayed_report['edit_reason'])
-
-                # エクスポートボタン
-                report_text_content = f"週次レポート（{report_label}）\n\n" \
-                                      f"対象店舗: {selected_report_data['store_name']}店\n" \
-                                      f"対象週: {selected_report_data['monday_date']} 〜 {(datetime.strptime(selected_report_data['monday_date'], '%Y-%m-%d').date() + timedelta(days=6)).strftime('%Y%m%d')}\n\n" \
-                                      f"■ 動向:\n{displayed_report.get('trend', '')}\n\n" \
-                                      f"■ 要因:\n" + "\n".join([f"- {f}" for f in displayed_report.get('factors', [])]) + "\n\n" \
-                                      f"■ 質問事項:\n" + ("\n".join([f"- {q}" for q in displayed_report.get('questions', [])]) if displayed_report.get('questions') else "なし")
+            if selected_report_db:
+                # DBから最新の完全なレポートデータを再取得
+                full_report = db_manager.get_weekly_report(selected_report_db['store_id'], selected_report_db['monday_date'])
                 
-                # テキストファイルダウンロード
-                st.download_button(
-                    label=f"📝 {report_label}をテキストでダウンロード",
-                    data=report_text_content.encode('utf-8'),
-                    file_name=f"{selected_report_data['store_name']}_{selected_report_data['monday_date']}_weekly_report_{report_label}.txt",
-                    mime="text/plain",
-                    key=f"download_txt_{selected_report_id}_{report_label}"
-                )
+                if full_report:
+                    st.markdown(f"### レポートID: {full_report['id']} - {db_manager.get_store_name_by_id(full_report['store_id'])}店 - 週次: {full_report['monday_date']}")
+                    st.write(f"最終更新日時: {datetime.fromisoformat(full_report['timestamp']).strftime('%Y/%m/%d %H:%M')}")
 
-                # JSONファイルダウンロード
-                report_json_content = json.dumps(displayed_report, ensure_ascii=False, indent=2)
-                st.download_button(
-                    label=f"📊 {report_label}をJSONでダウンロード",
-                    data=report_json_content.encode('utf-8'),
-                    file_name=f"{selected_report_data['store_name']}_{selected_report_data['monday_date']}_weekly_report_{report_label}.json",
-                    mime="application/json",
-                    key=f"download_json_{selected_report_id}_{report_label}"
-                )
+                    # ダウンロード用のデータ整形
+                    export_data = {
+                        "レポート対象週の月曜日": full_report['monday_date'],
+                        "店舗名": db_manager.get_store_name_by_id(full_report['store_id']),
+                        "AI生成レポート_動向": full_report['generated_report'].get('trend', '') if full_report.get('generated_report') else '',
+                        "AI生成レポート_要因": ", ".join(full_report['generated_report'].get('factors', [])) if full_report.get('generated_report') else '',
+                        "AI生成レポート_質問": "\n".join(full_report['generated_report'].get('questions', [])) if full_report.get('generated_report') else '',
+                        "修正後レポート_動向": full_report['modified_report'].get('trend', '') if full_report.get('modified_report') else '',
+                        "修正後レポート_要因": ", ".join(full_report['modified_report'].get('factors', [])) if full_report.get('modified_report') else '',
+                        "修正後レポート_質問": "\n".join(full_report['modified_report'].get('questions', [])) if full_report.get('modified_report') else '',
+                        "修正理由": full_report['modified_report'].get('edit_reason', '') if full_report.get('modified_report') else '',
+                        "TOPICS": full_report.get('topics', ''),
+                        "インパクト大": full_report.get('impact_day', ''),
+                        "定量データ": full_report.get('quantitative_data', '')
+                    }
+                    
+                    # 日次レポートの詳細を追加
+                    daily_reports = full_report.get('daily_reports', {})
+                    for store_name, dates_data in daily_reports.items():
+                        for date_str, report_data in dates_data.items():
+                            export_data[f"日次動向_{store_name}_{date_str}"] = report_data.get('trend', '')
+                            export_data[f"日次要因_{store_name}_{date_str}"] = ", ".join(report_data.get('factors', []))
 
-def show_learning_status_page():
-    st.title("🧠 AI学習状況")
-    st.markdown("---")
+                    df_export = pd.DataFrame([export_data])
+                    
+                    st.download_button(
+                        label="レポートをExcelでダウンロード",
+                        data=get_excel_download_link(df_export, f"週次レポート_{full_report['monday_date']}_{db_manager.get_store_name_by_id(full_report['store_id'])}.xlsx", "ダウンロード"),
+                        file_name=f"週次レポート_{full_report['monday_date']}_{db_manager.get_store_name_by_id(full_report['store_id'])}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
 
-    st.info("このページでは、AIの学習に関する現在の統計情報を確認できます。")
+                    st.markdown("#### レポート内容プレビュー")
+                    if full_report.get('modified_report'):
+                        st.subheader("--- 最終修正版レポート ---")
+                        st.markdown("**週全体の動向と要因:**")
+                        st.write(full_report['modified_report'].get('trend', ''))
+                        st.markdown("**主な要因:**")
+                        for i, factor in enumerate(full_report['modified_report'].get('factors', [])):
+                            st.write(f"- {factor}")
+                        if full_report['modified_report'].get('questions'):
+                            st.markdown("**AIへの質問:**")
+                            for q in full_report['modified_report'].get('questions', []):
+                                st.write(f"- {q}")
+                        if full_report['modified_report'].get('edit_reason'):
+                            st.markdown("**修正理由:**")
+                            st.write(full_report['modified_report'].get('edit_reason', ''))
+                    
+                    if full_report.get('generated_report'):
+                        st.subheader("--- AI生成レポート (オリジナル) ---")
+                        st.markdown("**週全体の動向と要因:**")
+                        st.write(full_report['generated_report'].get('trend', ''))
+                        st.markdown("**主な要因:**")
+                        for i, factor in enumerate(full_report['generated_report'].get('factors', [])):
+                            st.write(f"- {factor}")
+                        if full_report['generated_report'].get('questions'):
+                            st.markdown("**AIからの質問:**")
+                            for q in full_report['generated_report'].get('questions', []):
+                                st.write(f"- {q}")
+                    
+                    st.subheader("--- 入力データ ---")
+                    st.markdown("**日次レポート:**")
+                    daily_reports = full_report.get('daily_reports', {})
+                    for store_name, dates_data in daily_reports.items():
+                        st.markdown(f"**{store_name}店**")
+                        for date_str, report_data in dates_data.items():
+                            st.markdown(f"  - {date_str} 動向: {report_data.get('trend', 'N/A')}")
+                            st.markdown(f"    要因: {', '.join(report_data.get('factors', [])) if report_data.get('factors') else 'N/A'}")
 
-    stats = db_manager.get_learning_stats()
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric(label="合計レポート数", value=stats['total_reports'])
-    with col2:
-        st.metric(label="修正済みレポート数 (学習済み)", value=stats['corrections'])
-    with col3:
-        st.metric(label="学習パターン数", value=stats['patterns'])
-    
-    st.markdown("---")
-    st.subheader("学習パターンの詳細")
-    st.info("学習パターンは、ユーザーがAI生成レポートを修正した際にシステムが自動的に記録したものです。これにより、AIはより適切なレポートを生成するよう学習します。")
-    
-    conn = db_manager._get_connection()
-    learning_patterns_df = pd.read_sql_query("SELECT * FROM learning_patterns ORDER BY last_used DESC", conn)
-    conn.close()
-
-    if not learning_patterns_df.empty:
-        # JSON文字列を展開して表示
-        display_df = learning_patterns_df.copy()
-        
-        display_df['元の出力 (抜粋)'] = display_df['original_output_json'].apply(lambda x: json.loads(x).get('trend', '')[:50] + '...' if x else '')
-        display_df['修正後の出力 (抜粋)'] = display_df['modified_output_json'].apply(lambda x: json.loads(x).get('trend', '')[:50] + '...' if x else '')
-        
-        st.dataframe(
-            display_df[['id', 'usage_count', 'last_used', 'edit_reason', '元の出力 (抜粋)', '修正後の出力 (抜粋)']],
-            use_container_width=True,
-            hide_row_index=True
-        )
-
-        st.markdown("---")
-        st.subheader("個別の学習パターンの詳細")
-        pattern_ids = [""] + [str(pid) for pid in learning_patterns_df['id'].tolist()]
-        selected_pattern_id = st.selectbox("詳細を表示する学習パターンIDを選択:", pattern_ids)
-
-        if selected_pattern_id:
-            selected_pattern = learning_patterns_df[learning_patterns_df['id'] == int(selected_pattern_id)].iloc[0]
-            
-            st.write(f"#### パターンID: {selected_pattern['id']}")
-            st.write(f"**利用回数:** {selected_pattern['usage_count']}")
-            st.write(f"**最終利用日時:** {selected_pattern['last_used']}")
-            st.write(f"**修正理由:** {selected_pattern['edit_reason']}")
-            
-            st.markdown("---")
-            st.write("##### 元のAI生成出力")
-            st.json(json.loads(selected_pattern['original_output_json']))
-            
-            st.markdown("---")
-            st.write("##### 修正後の出力")
-            st.json(json.loads(selected_pattern['modified_output_json']))
-
+                    st.markdown("**TOPICS:**")
+                    st.write(full_report.get('topics', 'N/A'))
+                    st.markdown("**インパクト大:**")
+                    st.write(full_report.get('impact_day', 'N/A'))
+                    st.markdown("**定量データ:**")
+                    st.write(full_report.get('quantitative_data', 'N/A'))
+            else:
+                st.warning("選択されたレポートの詳細を読み込めませんでした。")
     else:
-        st.info("まだ学習パターンが保存されていません。レポートを修正して保存すると、ここにパターンが追加されます。")
+        st.info("レポート履歴がありません。")
 
 def show_settings_page():
     st.title("⚙️ 設定")
     st.markdown("---")
 
-    st.info("Streamlitアプリケーションの動作に必要な設定を行います。特にOpenAI APIキーは必須です。")
-
     st.subheader("OpenAI APIキー設定")
-    openai_api_key = st.text_input(
-        "OpenAI API Key (sk-から始まるキー)",
+    st.info("週次レポート生成にはOpenAI APIキーが必要です。")
+    
+    # 環境変数から現在のAPIキーを取得
+    current_api_key = os.getenv("OPENAI_API_KEY", "")
+    
+    new_api_key = st.text_input(
+        "OpenAI APIキーを入力してください:",
         type="password",
-        value=st.session_state.get("openai_api_key", os.getenv("OPENAI_API_KEY", "")), # .envからも読み込む
-        help="OpenAIのAPIキーを入力してください。これによりAIレポート生成機能が利用可能になります。"
+        value=current_api_key,
+        help="お持ちのOpenAI APIキーを入力してください。入力されたキーは環境変数として保存されます。変更しない場合は空のままにしてください。"
     )
 
     if st.button("APIキーを保存"):
-        if openai_api_key:
-            st.session_state["openai_api_key"] = openai_api_key
-            # 環境変数に設定 (現在のセッションのみ)
-            os.environ["OPENAI_API_KEY"] = openai_api_key
-            
-            # レポート生成器にキーを設定
-            if report_generator.initialize_openai(openai_api_key):
-                st.success("OpenAI APIキーが正常に設定されました。")
-            else:
-                st.error("OpenAI APIキーの設定に失敗しました。キーが正しいか確認してください。")
+        if new_api_key:
+            # .envファイルにAPIキーを書き込む
+            with open(".env", "w") as f:
+                f.write(f"OPENAI_API_KEY={new_api_key}\n")
+            # 環境変数にセット（このセッションで即座に反映させるため）
+            os.environ["OPENAI_API_KEY"] = new_api_key
+            st.success("APIキーが保存されました。")
+            # OpenAIクライアントを再初期化
+            report_generator.initialize_openai(new_api_key)
         else:
-            st.error("APIキーが入力されていません。")
-    
-    if "openai_api_key" in st.session_state and st.session_state["openai_api_key"]:
-        st.success("APIキーが設定済みです。")
-    elif os.getenv("OPENAI_API_KEY"):
-        st.success("APIキーが環境変数から設定済みです。")
-        # 環境変数から設定されている場合は、レポート生成器も初期化しておく
-        if not report_generator.openai_client:
-            report_generator.initialize_openai(os.getenv("OPENAI_API_KEY"))
-    else:
-        st.warning("OpenAI APIキーが設定されていません。レポート生成機能は利用できません。")
+            st.warning("APIキーが入力されていません。")
 
     st.markdown("---")
-    st.subheader("学習データCSVファイルのアップロード")
-    st.info("AIの応答スタイルや専門用語を調整するための学習データ（CSV形式）をアップロードできます。既存のCSVを基にファインチューニングを行う場合に使用します。")
 
-    uploaded_file = st.file_uploader("学習データCSVファイルをアップロード", type=["csv"])
+    st.subheader("学習データ管理 (開発中)")
+    st.info("AIの精度向上に使用される学習データを管理します。")
 
-    if uploaded_file:
-        if report_generator.load_training_data(uploaded_file):
-            st.success("学習データが正常に読み込まれました。")
-            st.dataframe(report_generator.training_data.head()) # 最初の5行を表示
+    learning_stats = db_manager.get_learning_stats()
+    st.write(f"登録されているレポート数: **{learning_stats['total_reports']}**")
+    st.write(f"ユーザー修正済みレポート数: **{learning_stats['corrections']}**")
+    st.write(f"学習パターン数: **{learning_stats['patterns']}**")
+
+    # 学習データのエクスポート機能 (例)
+    st.markdown("---")
+    st.subheader("学習データのエクスポート")
+    if st.button("全学習データをダウンロード (開発者向け)"):
+        # 仮の学習データ取得ロジック（実際にはlearning_patternsテーブルから取得）
+        conn = db_manager._get_connection()
+        learning_data_df = pd.read_sql_query("SELECT * FROM learning_patterns", conn)
+        conn.close()
+
+        if not learning_data_df.empty:
+            st.download_button(
+                label="学習データをCSVでダウンロード",
+                data=learning_data_df.to_csv(index=False, encoding='utf-8-sig'),
+                file_name="learning_data_export.csv",
+                mime="text/csv"
+            )
+            st.success("学習データをダウンロードしました。")
         else:
-            st.error("学習データの読み込みに失敗しました。CSVファイル形式を確認してください。")
+            st.warning("ダウンロードする学習データがありません。")
 
-# --- メインアプリケーションロジック ---
 
-# サイドバーメニュー
-with st.sidebar:
-    st.image("https://www.streamlit.io/images/brand/streamlit-mark-color.svg", width=50)
-    st.title("アパレル店舗週次レポートシステム")
-    st.markdown("---")
-    
-    menu_options = {
-        "レポート作成": show_report_creation_page,
-        "レポート履歴": show_report_history_page,
-        "AI学習状況": show_learning_status_page,
-        "設定": show_settings_page
-    }
+# メインナビゲーション
+st.sidebar.title("ナビゲーション")
+selection = st.sidebar.radio("Go to", ["週次レポート作成", "レポート履歴", "設定"])
 
-    selected_menu = st.radio("メニュー", list(menu_options.keys()))
-
-    st.markdown("---")
-    st.write("Developed with ❤️ by Streamlit & AI")
-
-# 選択されたメニューに応じたページを表示
-if selected_menu:
-    menu_options[selected_menu]()
-
-# 初期ロード時にAPIキーが設定されていればレポートジェネレーターを初期化
-if "openai_api_key" in st.session_state and st.session_state["openai_api_key"] and not report_generator.openai_client:
-    report_generator.initialize_openai(st.session_state["openai_api_key"])
-elif os.getenv("OPENAI_API_KEY") and not report_generator.openai_client:
-    report_generator.initialize_openai(os.getenv("OPENAI_API_KEY"))
+if selection == "週次レポート作成":
+    show_report_creation_page()
+elif selection == "レポート履歴":
+    show_report_history_page()
+elif selection == "設定":
+    show_settings_page()

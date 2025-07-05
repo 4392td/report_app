@@ -1,0 +1,17 @@
+# .streamlit/config.toml
+
+[theme]
+# プライマリカラー (例: Streamlitの青)
+primaryColor="#FF4B4B" # これはアクセントカラーに影響します
+
+# 背景色 (白)
+backgroundColor="#FFFFFF"
+
+# セカンダリ背景色 (サイドバーや一部のウィジェットの背景)
+secondaryBackgroundColor="#F0F2F6" # 少しグレーがかった白
+
+# テキストの色 (黒)
+textColor="#303030" # 少し柔らかい黒
+
+# フォントの種類
+# font="sans serif"
