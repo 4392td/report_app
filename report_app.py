@@ -897,7 +897,8 @@ def show_report_creation_page():
         # APIキーの確認
         openai_api_key = os.getenv("OPENAI_API_KEY")
         if not openai_api_key:
-            st.error("OpenAI APIキーが設定されていません。サイドバーの「設定」ページでAPIキーを設定してください。")
+            st.error("❌ OpenAI APIキーが設定されていません。システム管理者にAPIキーの設定を依頼してください。")
+            st.info("管理者の方は、`.env`ファイルに`OPENAI_API_KEY=your_api_key_here`の形式でAPIキーを設定してください。")
             return
         
         # OpenAIクライアントを初期化
@@ -1176,30 +1177,22 @@ def show_settings_page():
     st.markdown("---")
 
     st.subheader("OpenAI APIキー設定")
-    st.info("週次レポート生成にはOpenAI APIキーが必要です。")
     
-    # 環境変数から現在のAPIキーを取得
+    # 環境変数から現在のAPIキーの設定状況を確認
     current_api_key = os.getenv("OPENAI_API_KEY", "")
     
-    new_api_key = st.text_input(
-        "OpenAI APIキーを入力してください:",
-        type="password",
-        value=current_api_key,
-        help="お持ちのOpenAI APIキーを入力してください。入力されたキーは環境変数として保存されます。変更しない場合は空のままにしてください。"
-    )
-
-    if st.button("APIキーを保存"):
-        if new_api_key:
-            # .envファイルにAPIキーを書き込む
-            with open(".env", "w") as f:
-                f.write(f"OPENAI_API_KEY={new_api_key}\n")
-            # 環境変数にセット（このセッションで即座に反映させるため）
-            os.environ["OPENAI_API_KEY"] = new_api_key
-            st.success("APIキーが保存されました。")
-            # OpenAIクライアントを再初期化
-            report_generator.initialize_openai(new_api_key)
-        else:
-            st.warning("APIキーが入力されていません。")
+    if current_api_key:
+        st.success("✅ OpenAI APIキーが設定されています。")
+        st.info("APIキーは環境変数から読み込まれています。変更が必要な場合は、システム管理者にお問い合わせください。")
+    else:
+        st.error("❌ OpenAI APIキーが設定されていません。")
+        st.warning("システム管理者にOpenAI APIキーの設定を依頼してください。")
+        st.markdown("""
+        **管理者向け設定手順:**
+        1. `.env`ファイルを作成または編集
+        2. `OPENAI_API_KEY=your_api_key_here` の形式でAPIキーを設定
+        3. アプリケーションを再起動
+        """)
 
     st.markdown("---")
 
