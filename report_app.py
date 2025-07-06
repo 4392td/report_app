@@ -401,7 +401,8 @@ class DBManager:
 class ApparelReportGenerator:
     def __init__(self):
         self.openai_client = None
-        self.training_data = None 
+        self.training_data = None
+        self.text_training_data = None 
         self.memory_db = None 
         self.learning_engine = None
         
@@ -427,6 +428,15 @@ class ApparelReportGenerator:
             return True
         except Exception as e:
             st.error(f"学習データ読み込みエラー: {str(e)}")
+            return False
+    
+    def load_text_training_data(self, csv_file_path):
+        """テキスト学習データを読み込み"""
+        try:
+            self.text_training_data = pd.read_csv(csv_file_path)
+            return True
+        except Exception as e:
+            st.error(f"テキスト学習データ読み込みエラー: {str(e)}")
             return False
     
     
@@ -553,19 +563,29 @@ class ApparelReportGenerator:
     def _extract_training_context(self) -> str:
         """学習データから社内用語・文体を抽出 (簡略化された例)"""
         if self.training_data is None or self.training_data.empty:
-            return ""
+            if self.text_training_data is None or self.text_training_data.empty:
+                return ""
         
         context = []
         
-        if 'example_trend' in self.training_data.columns and not self.training_data['example_trend'].empty:
-            context.append("過去のレポート記述例 (動向):")
-            for ex in self.training_data['example_trend'].dropna().head(3):
-                context.append(f"- {ex[:50]}...")
+        # 既存のtraining_data.csvからの文脈作成
+        if self.training_data is not None and not self.training_data.empty:
+            if 'example_trend' in self.training_data.columns and not self.training_data['example_trend'].empty:
+                context.append("過去のレポート記述例 (動向):")
+                for ex in self.training_data['example_trend'].dropna().head(3):
+                    context.append(f"- {ex[:50]}...")
+            
+            if 'example_factors' in self.training_data.columns and not self.training_data['example_factors'].empty:
+                context.append("過去のレポート記述例 (要因):")
+                for ex in self.training_data['example_factors'].dropna().head(3):
+                    context.append(f"- {ex[:30]}...")
         
-        if 'example_factors' in self.training_data.columns and not self.training_data['example_factors'].empty:
-            context.append("過去のレポート記述例 (要因):")
-            for ex in self.training_data['example_factors'].dropna().head(3):
-                context.append(f"- {ex[:30]}...")
+        # text_training_data.csvからの文脈作成
+        if self.text_training_data is not None and not self.text_training_data.empty:
+            if 'output' in self.text_training_data.columns and not self.text_training_data['output'].empty:
+                context.append("過去のレポート記述例 (テキスト学習データ):")
+                for ex in self.text_training_data['output'].dropna().head(3):
+                    context.append(f"- {ex[:60]}...")
         
         return "\n".join(context)
     
@@ -685,14 +705,32 @@ report_generator.set_dependencies(db_manager, learning_engine)
 
 # ★ここから追加するコード★
 TRAINING_CSV_FILE = "training_data.csv" # ここを実際のファイル名に置き換えてください！
+TEXT_TRAINING_CSV_FILE = "text_training_data.csv" # テキスト学習データファイル
 
+# training_data.csvの読み込み
 if Path(TRAINING_CSV_FILE).exists():
     if report_generator.load_training_data(TRAINING_CSV_FILE):
         st.sidebar.success(f"学習データ '{TRAINING_CSV_FILE}' を読み込みました。")
     else:
         st.sidebar.warning(f"学習データ '{TRAINING_CSV_FILE}' の読み込みに失敗しました。ファイルの内容を確認してください。")
 else:
-    st.sidebar.info(f"学習データ '{TRAINING_CSV_FILE}' が見つかりませんでした。学習機能は無効になります。")
+    st.sidebar.info(f"学習データ '{TRAINING_CSV_FILE}' が見つかりませんでした。")
+
+# text_training_data.csvの読み込み
+if Path(TEXT_TRAINING_CSV_FILE).exists():
+    if report_generator.load_text_training_data(TEXT_TRAINING_CSV_FILE):
+        st.sidebar.success(f"テキスト学習データ '{TEXT_TRAINING_CSV_FILE}' を読み込みました。")
+    else:
+        st.sidebar.warning(f"テキスト学習データ '{TEXT_TRAINING_CSV_FILE}' の読み込みに失敗しました。ファイルの内容を確認してください。")
+else:
+    st.sidebar.info(f"テキスト学習データ '{TEXT_TRAINING_CSV_FILE}' が見つかりませんでした。")
+
+# 学習データの有無を確認
+has_training_data = (report_generator.training_data is not None and not report_generator.training_data.empty)
+has_text_training_data = (report_generator.text_training_data is not None and not report_generator.text_training_data.empty)
+
+if not has_training_data and not has_text_training_data:
+    st.sidebar.warning("学習データが見つかりませんでした。学習機能は無効になります。")
 # ★ここまで追加するコード★
 
 def get_monday_of_week(selected_date: date) -> date:
