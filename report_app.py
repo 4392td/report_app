@@ -230,7 +230,7 @@ class DBManager:
     def get_store_name_by_id(self, store_id: int) -> str:
         """ストアIDから名前を取得します。"""
         conn = self._get_connection()
-        store_name = conn.execute('SELECT name FROM stores WHERE id = ?', (store_id,)).fetchone()['id']
+        store_name = conn.execute('SELECT name FROM stores WHERE id = ?', (store_id,)).fetchone()['name']
         conn.close()
         return store_name
     
