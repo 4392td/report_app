@@ -845,59 +845,52 @@ def show_report_creation_page():
     st.header("2. 日次レポートデータの入力")
     st.markdown("各店舗の**日ごとの動向と要因**を入力してください。要因は複数入力可能です（カンマ区切り）。")
     
-    # 店舗ごとのタブ表示（色が変わるように修正）
-    # `st.tabs` の戻り値をセッションステートに保存し、現在選択されているタブのインデックスとして利用
-    # TypeError: LayoutsMixin.tabs() got an unexpected keyword argument 'key' エラー対応: keyを削除
-    tabs = st.tabs(
-        store_names
+    # 店舗選択をラジオボタンで明確にする
+    selected_store_for_input = st.radio(
+        "**レポートを作成する店舗を選択してください:**",
+        store_names,
+        index=store_names.index(st.session_state.get('selected_store_for_report', store_names[0])),
+        horizontal=True
     )
-
-    # 現在選択されているタブのインデックス (st.tabs() は最後に選択されたタブのインデックスを返す)
-    # これをセッションステートに保存することで、UIと内部状態を同期させる
-    # Streamlitの動作では、タブがクリックされると、次にスクリプトが再実行されるときに
-    # st.tabs() がその新しいインデックスを返す
     
-    # ここで `tabs` 変数 (st.tabs() の戻り値であるタブオブジェクトのリスト) を使用して、
-    # 各タブのコンテンツを表示する
-    for i, tab in enumerate(tabs):
-        with tab:
-            current_store_name_for_input = store_names[i] # このタブに対応する店舗名
-            st.session_state['selected_store_for_report'] = current_store_name_for_input # セッションステートの選択店舗名を更新
+    # 選択された店舗をセッションステートに保存
+    st.session_state['selected_store_for_report'] = selected_store_for_input
+    
+    st.markdown(f"**現在選択中:** {selected_store_for_input}店")
+    st.markdown("---")
 
-            # このタブが選択されている場合にのみ、その店舗の入力フィールドを表示
-            # st.tabs() の挙動により、with tab: のブロックに入った時点で、そのタブがアクティブになっている
-            # なので、追加の if st.session_state['active_tab_index'] == i: は不要
-            
-            # まず、現在の店舗のdaily_reports_inputを確実に初期化
-            if current_store_name_for_input not in st.session_state['daily_reports_input']:
-                st.session_state['daily_reports_input'][current_store_name_for_input] = {
-                    (monday_of_week + timedelta(days=j)).strftime('%Y-%m-%d'): {"trend": "", "factors": []} for j in range(7)
-                }
+    # 選択された店舗のdaily_reports_inputを確実に初期化
+    if selected_store_for_input not in st.session_state['daily_reports_input']:
+        st.session_state['daily_reports_input'][selected_store_for_input] = {
+            (monday_of_week + timedelta(days=i)).strftime('%Y-%m-%d'): {"trend": "", "factors": []} for i in range(7)
+        }
 
-            # 選択された店舗の日次レポート入力欄を表示
-            for j in range(7): # 月曜日から日曜日まで
-                current_date = monday_of_week + timedelta(days=j)
-                date_str = current_date.strftime('%Y-%m-%d')
-                day_name = ["月", "火", "水", "木", "金", "土", "日"][j]
+    # 選択された店舗の日次レポート入力欄のみを表示
+    for j in range(7): # 月曜日から日曜日まで
+        current_date = monday_of_week + timedelta(days=j)
+        date_str = current_date.strftime('%Y-%m-%d')
+        day_name = ["月", "火", "水", "木", "金", "土", "日"][j]
 
-                st.subheader(f"🗓️ {current_date.strftime('%Y年%m月%d日')} ({day_name})")
-                
-                # 日次動向
-                st.session_state['daily_reports_input'][current_store_name_for_input][date_str]['trend'] = st.text_area(
-                    f"**{current_date.strftime('%m/%d')} 動向:**",
-                    value=st.session_state['daily_reports_input'][current_store_name_for_input].get(date_str, {}).get('trend', ''),
-                    key=f"{current_store_name_for_input}_{date_str}_trend",
-                    height=80
-                )
-                # 日次要因
-                factors_str = ", ".join(st.session_state['daily_reports_input'][current_store_name_for_input].get(date_str, {}).get('factors', []))
-                new_factors_str = st.text_input(
-                    f"**{current_date.strftime('%m/%d')} 要因 (カンマ区切り):**",
-                    value=factors_str,
-                    key=f"{current_store_name_for_input}_{date_str}_factors"
-                )
-                st.session_state['daily_reports_input'][current_store_name_for_input][date_str]['factors'] = [f.strip() for f in new_factors_str.split(',') if f.strip()]
-
+        st.subheader(f"🗓️ {current_date.strftime('%Y年%m月%d日')} ({day_name})")
+        
+        # 日次動向
+        trend_value = st.text_area(
+            f"**{current_date.strftime('%m/%d')} 動向:**",
+            value=st.session_state['daily_reports_input'][selected_store_for_input].get(date_str, {}).get('trend', ''),
+            key=f"{selected_store_for_input}_{date_str}_trend",
+            height=80
+        )
+        st.session_state['daily_reports_input'][selected_store_for_input][date_str]['trend'] = trend_value
+        
+        # 日次要因
+        factors_str = ", ".join(st.session_state['daily_reports_input'][selected_store_for_input].get(date_str, {}).get('factors', []))
+        new_factors_str = st.text_input(
+            f"**{current_date.strftime('%m/%d')} 要因 (カンマ区切り):**",
+            value=factors_str,
+            key=f"{selected_store_for_input}_{date_str}_factors"
+        )
+        st.session_state['daily_reports_input'][selected_store_for_input][date_str]['factors'] = [f.strip() for f in new_factors_str.split(',') if f.strip()]
+    
     st.markdown("---")
 
     st.header("3. 週全体の追加情報 (任意)")
