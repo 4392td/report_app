@@ -688,12 +688,21 @@ def get_file_download_link(df, filename, text):
 
 def get_excel_download_link(df, filename, text):
     """Generates a link for downloading a pandas DataFrame as Excel."""
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='レポート')
-    b64 = base64.b64encode(output.getvalue()).decode()
-    href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">{text}</a>'
-    return href
+    try:
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='レポート')
+        b64 = base64.b64encode(output.getvalue()).decode()
+        href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">{text}</a>'
+        return href
+    except ImportError:
+        # xlsxwriterが利用できない場合はCSVにフォールバック
+        st.warning("Excel形式でのダウンロードができません。CSV形式でダウンロードします。")
+        csv = df.to_csv(index=False, encoding='utf-8-sig')
+        b64 = base64.b64encode(csv.encode()).decode()
+        csv_filename = filename.replace('.xlsx', '.csv')
+        href = f'<a href="data:file/csv;base64,{b64}" download="{csv_filename}">{text}</a>'
+        return href
 
 # グローバルインスタンスの初期化
 db_manager = DBManager()
@@ -1158,12 +1167,29 @@ def show_report_history_page():
 
                     df_export = pd.DataFrame([export_data])
                     
-                    st.download_button(
-                        label="レポートをExcelでダウンロード",
-                        data=get_excel_download_link(df_export, f"週次レポート_{full_report['monday_date']}_{db_manager.get_store_name_by_id(full_report['store_id'])}.xlsx", "ダウンロード"),
-                        file_name=f"週次レポート_{full_report['monday_date']}_{db_manager.get_store_name_by_id(full_report['store_id'])}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                    # Excelダウンロード（エラーハンドリング付き）
+                    try:
+                        output = BytesIO()
+                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                            df_export.to_excel(writer, index=False, sheet_name='レポート')
+                        excel_data = output.getvalue()
+                        
+                        st.download_button(
+                            label="📊 レポートをExcelでダウンロード",
+                            data=excel_data,
+                            file_name=f"週次レポート_{full_report['monday_date']}_{db_manager.get_store_name_by_id(full_report['store_id'])}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    except ImportError:
+                        st.warning("⚠️ Excel形式でのダウンロードができません。CSV形式でダウンロードしてください。")
+                        # CSVダウンロードをフォールバックとして提供
+                        csv_data = df_export.to_csv(index=False, encoding='utf-8-sig')
+                        st.download_button(
+                            label="📄 レポートをCSVでダウンロード",
+                            data=csv_data,
+                            file_name=f"週次レポート_{full_report['monday_date']}_{db_manager.get_store_name_by_id(full_report['store_id'])}.csv",
+                            mime="text/csv"
+                        )
 
                     st.markdown("#### レポート内容プレビュー")
                     if full_report.get('modified_report'):
