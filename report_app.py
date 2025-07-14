@@ -873,6 +873,10 @@ def show_report_creation_page():
 
         st.subheader(f"🗓️ {current_date.strftime('%Y年%m月%d日')} ({day_name})")
         
+        # date_str辞書の初期化を確保
+        if date_str not in st.session_state['daily_reports_input'][selected_store_for_input]:
+            st.session_state['daily_reports_input'][selected_store_for_input][date_str] = {"trend": "", "factors": []}
+        
         # 日次動向
         trend_value = st.text_area(
             f"**{current_date.strftime('%m/%d')} 動向:**",
@@ -1041,11 +1045,17 @@ def show_report_creation_page():
                 store_id = db_manager.get_store_id_by_name(st.session_state['selected_store_for_report'])
                 monday_date_str = st.session_state['selected_monday']
                 
+                # session_stateのデータ構造を確保
+                if 'daily_reports_input' not in st.session_state:
+                    st.session_state['daily_reports_input'] = {}
+                if st.session_state['selected_store_for_report'] not in st.session_state['daily_reports_input']:
+                    st.session_state['daily_reports_input'][st.session_state['selected_store_for_report']] = {}
+                
                 input_data_for_learning = {
                     'daily_reports': {st.session_state['selected_store_for_report']: st.session_state['daily_reports_input'][st.session_state['selected_store_for_report']]},
-                    'topics': st.session_state['topics_input'],
-                    'impact_day': st.session_state['impact_day_input'],
-                    'quantitative_data': st.session_state['quantitative_data_input']
+                    'topics': st.session_state.get('topics_input', []),
+                    'impact_day': st.session_state.get('impact_day_input', ''),
+                    'quantitative_data': st.session_state.get('quantitative_data_input', {})
                 }
 
                 # DBに保存し、学習エンジンに渡す
