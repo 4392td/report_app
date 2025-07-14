@@ -956,7 +956,7 @@ def show_report_creation_page():
             st.session_state['generated_report_output'] = generated_report
             st.session_state['modified_report_output'] = None # AI生成時に修正レポートはクリア
             st.success("AIレポートの生成が完了しました！")
-            st.experimental_rerun() # ページを再描画して結果を表示
+            st.rerun() # ページを再描画して結果を表示
         else:
             st.error("AIレポートの生成に失敗しました。入力内容を確認するか、再度お試しください。")
 
@@ -1070,7 +1070,7 @@ def show_report_creation_page():
                     modified_output=modified_report_data
                 )
                 st.success("修正内容が保存され、システムが学習しました！")
-                st.experimental_rerun()
+                st.rerun()
 
 
 def show_report_history_page():
