@@ -309,19 +309,19 @@ class DBManager:
             try:
                 report_data['daily_reports'] = json.loads(report_data['daily_reports_json']) if report_data['daily_reports_json'] else {}
             except (json.JSONDecodeError, TypeError) as e:
-                st.error(f"日次レポートデータの解析に失敗しました: {str(e)}")
+                print(f"日次レポートデータの解析に失敗しました: {str(e)}")
                 report_data['daily_reports'] = {}
                 
             try:
                 report_data['generated_report'] = json.loads(report_data['generated_report_json']) if report_data['generated_report_json'] else {}
             except (json.JSONDecodeError, TypeError) as e:
-                st.error(f"生成レポートデータの解析に失敗しました: {str(e)}")
+                print(f"生成レポートデータの解析に失敗しました: {str(e)}")
                 report_data['generated_report'] = {}
                 
             try:
                 report_data['modified_report'] = json.loads(report_data['modified_report_json']) if report_data['modified_report_json'] else None
             except (json.JSONDecodeError, TypeError) as e:
-                st.error(f"修正レポートデータの解析に失敗しました: {str(e)}")
+                print(f"修正レポートデータの解析に失敗しました: {str(e)}")
                 report_data['modified_report'] = None
             
             del report_data['daily_reports_json']
@@ -1162,50 +1162,64 @@ def show_report_history_page():
                     
                     if not full_report:
                         st.error(f"レポートID {selected_report_id} のデータを取得できませんでした。")
+                        st.info("データベース接続またはデータ構造に問題がある可能性があります。")
                         return
                         
                 except Exception as e:
                     st.error(f"レポート取得中にエラーが発生しました: {str(e)}")
+                    st.info("システム管理者に問い合わせてください。")
                     return
                 
                 if full_report:
                     st.markdown(f"### レポートID: {full_report['id']} - {db_manager.get_store_name_by_id(full_report['store_id'])}店 - 週次: {full_report['monday_date']}")
                     st.write(f"最終更新日時: {datetime.fromisoformat(full_report['timestamp']).strftime('%Y/%m/%d %H:%M')}")
 
-                    # ダウンロード用のデータ整形
+                    # ダウンロード用のデータ整形（エラーハンドリング強化）
                     export_data = {
-                        "レポート対象週の月曜日": full_report['monday_date'],
-                        "店舗名": db_manager.get_store_name_by_id(full_report['store_id']),
-                        "AI生成レポート_動向": full_report['generated_report'].get('trend', '') if full_report.get('generated_report') else '',
-                        "AI生成レポート_要因": ", ".join(full_report['generated_report'].get('factors', [])) if full_report.get('generated_report') else '',
-                        "AI生成レポート_質問": "\n".join(full_report['generated_report'].get('questions', [])) if full_report.get('generated_report') else '',
-                        "修正後レポート_動向": full_report['modified_report'].get('trend', '') if full_report.get('modified_report') else '',
-                        "修正後レポート_要因": ", ".join(full_report['modified_report'].get('factors', [])) if full_report.get('modified_report') else '',
-                        "修正後レポート_質問": "\n".join(full_report['modified_report'].get('questions', [])) if full_report.get('modified_report') else '',
-                        "修正理由": full_report['modified_report'].get('edit_reason', '') if full_report.get('modified_report') else '',
+                        "レポート対象週の月曜日": full_report.get('monday_date', ''),
+                        "店舗名": db_manager.get_store_name_by_id(full_report.get('store_id', 0)),
                         "TOPICS": full_report.get('topics', ''),
                         "インパクト大": full_report.get('impact_day', ''),
                         "定量データ": full_report.get('quantitative_data', '')
                     }
                     
-                    # 日次レポートの詳細を追加
+                    # 生成レポートデータの安全な取得
+                    generated_report = full_report.get('generated_report', {})
+                    if isinstance(generated_report, dict):
+                        export_data.update({
+                            "AI生成レポート_動向": generated_report.get('trend', ''),
+                            "AI生成レポート_要因": ", ".join(generated_report.get('factors', [])) if generated_report.get('factors') else '',
+                            "AI生成レポート_質問": "\n".join(generated_report.get('questions', [])) if generated_report.get('questions') else ''
+                        })
+                    
+                    # 修正レポートデータの安全な取得
+                    modified_report = full_report.get('modified_report')
+                    if isinstance(modified_report, dict):
+                        export_data.update({
+                            "修正後レポート_動向": modified_report.get('trend', ''),
+                            "修正後レポート_要因": ", ".join(modified_report.get('factors', [])) if modified_report.get('factors') else '',
+                            "修正後レポート_質問": "\n".join(modified_report.get('questions', [])) if modified_report.get('questions') else '',
+                            "修正理由": modified_report.get('edit_reason', '')
+                        })
+                    
+                    # 日次レポートの詳細を安全に追加
                     daily_reports = full_report.get('daily_reports', {})
-                    if daily_reports and isinstance(daily_reports, dict):
+                    if isinstance(daily_reports, dict):
                         for store_name, dates_data in daily_reports.items():
                             if isinstance(dates_data, dict):
                                 for date_str, report_data in dates_data.items():
-                                    # report_dataが辞書であることを確認
-                                    if isinstance(report_data, dict):
-                                        export_data[f"日次動向_{store_name}_{date_str}"] = report_data.get('trend', '')
-                                        export_data[f"日次要因_{store_name}_{date_str}"] = ", ".join(report_data.get('factors', []))
-                                    else:
-                                        # データが辞書でない場合のフォールバック
+                                    try:
+                                        if isinstance(report_data, dict):
+                                            export_data[f"日次動向_{store_name}_{date_str}"] = str(report_data.get('trend', ''))
+                                            factors = report_data.get('factors', [])
+                                            export_data[f"日次要因_{store_name}_{date_str}"] = ", ".join(factors) if isinstance(factors, list) else str(factors)
+                                        else:
+                                            export_data[f"日次動向_{store_name}_{date_str}"] = ''
+                                            export_data[f"日次要因_{store_name}_{date_str}"] = ''
+                                    except Exception as e:
+                                        print(f"日次データ処理エラー: {e}")
                                         export_data[f"日次動向_{store_name}_{date_str}"] = ''
                                         export_data[f"日次要因_{store_name}_{date_str}"] = ''
-                            else:
-                                # dates_dataが辞書でない場合のフォールバック
-                                export_data[f"日次動向_{store_name}_データ異常"] = ''
-                                export_data[f"日次要因_{store_name}_データ異常"] = ''
 
                     df_export = pd.DataFrame([export_data])
                     
@@ -1234,31 +1248,46 @@ def show_report_history_page():
                         )
 
                     st.markdown("#### レポート内容プレビュー")
-                    if full_report.get('modified_report'):
+                    
+                    # 修正レポートの表示
+                    modified_report = full_report.get('modified_report')
+                    if modified_report and isinstance(modified_report, dict):
                         st.subheader("--- 最終修正版レポート ---")
                         st.markdown("**週全体の動向と要因:**")
-                        st.write(full_report['modified_report'].get('trend', ''))
+                        st.write(modified_report.get('trend', ''))
                         st.markdown("**主な要因:**")
-                        for i, factor in enumerate(full_report['modified_report'].get('factors', [])):
-                            st.write(f"- {factor}")
-                        if full_report['modified_report'].get('questions'):
+                        factors = modified_report.get('factors', [])
+                        if isinstance(factors, list):
+                            for factor in factors:
+                                st.write(f"- {factor}")
+                        
+                        questions = modified_report.get('questions', [])
+                        if questions and isinstance(questions, list):
                             st.markdown("**AIへの質問:**")
-                            for q in full_report['modified_report'].get('questions', []):
+                            for q in questions:
                                 st.write(f"- {q}")
-                        if full_report['modified_report'].get('edit_reason'):
+                        
+                        edit_reason = modified_report.get('edit_reason')
+                        if edit_reason:
                             st.markdown("**修正理由:**")
-                            st.write(full_report['modified_report'].get('edit_reason', ''))
+                            st.write(edit_reason)
                     
-                    if full_report.get('generated_report'):
+                    # 生成レポートの表示
+                    generated_report = full_report.get('generated_report')
+                    if generated_report and isinstance(generated_report, dict):
                         st.subheader("--- AI生成レポート (オリジナル) ---")
                         st.markdown("**週全体の動向と要因:**")
-                        st.write(full_report['generated_report'].get('trend', ''))
+                        st.write(generated_report.get('trend', ''))
                         st.markdown("**主な要因:**")
-                        for i, factor in enumerate(full_report['generated_report'].get('factors', [])):
-                            st.write(f"- {factor}")
-                        if full_report['generated_report'].get('questions'):
+                        factors = generated_report.get('factors', [])
+                        if isinstance(factors, list):
+                            for factor in factors:
+                                st.write(f"- {factor}")
+                        
+                        questions = generated_report.get('questions', [])
+                        if questions and isinstance(questions, list):
                             st.markdown("**AIからの質問:**")
-                            for q in full_report['generated_report'].get('questions', []):
+                            for q in questions:
                                 st.write(f"- {q}")
                     
                     st.subheader("--- 入力データ ---")
@@ -1269,16 +1298,22 @@ def show_report_history_page():
                             st.markdown(f"**{store_name}店**")
                             if isinstance(dates_data, dict):
                                 for date_str, report_data in dates_data.items():
-                                    if isinstance(report_data, dict):
-                                        trend_text = report_data.get('trend', 'N/A')
-                                        factors_list = report_data.get('factors', [])
-                                        factors_text = ', '.join(factors_list) if factors_list else 'N/A'
-                                        st.markdown(f"  - {date_str} 動向: {trend_text}")
-                                        st.markdown(f"    要因: {factors_text}")
-                                    else:
-                                        st.markdown(f"  - {date_str} データ形式エラー: {type(report_data)}")
+                                    try:
+                                        if isinstance(report_data, dict):
+                                            trend_text = report_data.get('trend', 'N/A')
+                                            factors_list = report_data.get('factors', [])
+                                            if isinstance(factors_list, list):
+                                                factors_text = ', '.join(factors_list) if factors_list else 'N/A'
+                                            else:
+                                                factors_text = str(factors_list) if factors_list else 'N/A'
+                                            st.markdown(f"  - {date_str} 動向: {trend_text}")
+                                            st.markdown(f"    要因: {factors_text}")
+                                        else:
+                                            st.markdown(f"  - {date_str} データ形式エラー")
+                                    except Exception as e:
+                                        st.markdown(f"  - {date_str} データ読み込みエラー")
                             else:
-                                st.markdown(f"  - データ構造エラー: {type(dates_data)}")
+                                st.markdown("  - データ構造エラー")
                     else:
                         st.markdown("日次レポートデータがありません。")
 
