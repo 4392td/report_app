@@ -14,9 +14,15 @@ from pathlib import Path
 import hashlib # ハッシュ生成用にインポート
 from dotenv import load_dotenv # 追加
 import os # 追加
+import pytz # 日本時間取得用に追加
 
 # .envファイルをロード
 load_dotenv()
+
+def get_japan_time():
+    """日本時間の現在時刻を取得する"""
+    jst = pytz.timezone('Asia/Tokyo')
+    return datetime.now(jst)
 
 # --- Streamlitアプリのスタイル設定 ---
 # アプリ全体の背景を白、文字を黒に設定
@@ -443,9 +449,10 @@ def save_draft_data(store_name: str, monday_date_str: str, daily_reports_data: D
             modified_report
         )
         
-        # 保存時刻を記録
-        from datetime import datetime
-        st.session_state['last_auto_save'] = datetime.now().strftime('%H:%M:%S')
+        # 保存時刻を記録（日本時間）
+        japan_time = get_japan_time()
+        st.session_state['last_auto_save'] = japan_time.strftime('%Y年%m月%d日 %H:%M:%S')
+        st.session_state['last_auto_save_timestamp'] = japan_time.timestamp()
         
         return True
     except Exception as e:
@@ -999,9 +1006,27 @@ def show_report_creation_page():
     # 自動保存状況を表示
     if 'last_auto_save' not in st.session_state:
         st.session_state['last_auto_save'] = None
+    if 'last_auto_save_timestamp' not in st.session_state:
+        st.session_state['last_auto_save_timestamp'] = None
     
     if st.session_state['last_auto_save']:
-        st.success(f"✅ 自動保存済み: {st.session_state['last_auto_save']}")
+        # 保存からの経過時間を計算
+        if st.session_state['last_auto_save_timestamp']:
+            current_time = get_japan_time().timestamp()
+            elapsed_seconds = int(current_time - st.session_state['last_auto_save_timestamp'])
+            
+            if elapsed_seconds < 60:
+                elapsed_text = f"（{elapsed_seconds}秒前）"
+            elif elapsed_seconds < 3600:
+                elapsed_minutes = elapsed_seconds // 60
+                elapsed_text = f"（{elapsed_minutes}分前）"
+            else:
+                elapsed_hours = elapsed_seconds // 3600
+                elapsed_text = f"（{elapsed_hours}時間前）"
+        else:
+            elapsed_text = ""
+        
+        st.success(f"✅ 自動保存済み: {st.session_state['last_auto_save']} {elapsed_text}")
     else:
         st.info("💾 入力内容は自動的に保存されます")
     
@@ -1085,14 +1110,15 @@ def show_report_creation_page():
     if new_topics != st.session_state['topics_input']:
         st.session_state['topics_input'] = new_topics
         # 自動保存
-        save_draft_data(
+        if save_draft_data(
             selected_store_for_input,
             st.session_state['selected_monday'],
             {selected_store_for_input: st.session_state['daily_reports_input'][selected_store_for_input]},
             new_topics,
             st.session_state.get('impact_day_input', ''),
             st.session_state.get('quantitative_data_input', '')
-        )
+        ):
+            st.rerun()  # 保存後に画面を更新して時刻を表示
     
     # インパクト大入力
     new_impact_day = st.text_area(
@@ -1104,14 +1130,15 @@ def show_report_creation_page():
     if new_impact_day != st.session_state['impact_day_input']:
         st.session_state['impact_day_input'] = new_impact_day
         # 自動保存
-        save_draft_data(
+        if save_draft_data(
             selected_store_for_input,
             st.session_state['selected_monday'],
             {selected_store_for_input: st.session_state['daily_reports_input'][selected_store_for_input]},
             st.session_state.get('topics_input', ''),
             new_impact_day,
             st.session_state.get('quantitative_data_input', '')
-        )
+        ):
+            st.rerun()  # 保存後に画面を更新
     
     # 定量データ入力
     new_quantitative_data = st.text_area(
@@ -1123,14 +1150,15 @@ def show_report_creation_page():
     if new_quantitative_data != st.session_state['quantitative_data_input']:
         st.session_state['quantitative_data_input'] = new_quantitative_data
         # 自動保存
-        save_draft_data(
+        if save_draft_data(
             selected_store_for_input,
             st.session_state['selected_monday'],
             {selected_store_for_input: st.session_state['daily_reports_input'][selected_store_for_input]},
             st.session_state.get('topics_input', ''),
             st.session_state.get('impact_day_input', ''),
             new_quantitative_data
-        )
+        ):
+            st.rerun()  # 保存後に画面を更新
 
     st.markdown("---")
 
