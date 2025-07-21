@@ -394,6 +394,43 @@ class DBManager:
         if similar_cases_context:
             return "\n【過去の修正済みレポート例】\n" + "\n".join(similar_cases_context)
         return ""
+
+def save_draft_data(store_name: str, monday_date_str: str, daily_reports_data: Dict, topics: str = "", impact_day: str = "", quantitative_data: str = ""):
+    """入力途中のデータを自動保存する"""
+    try:
+        store_id = db_manager.get_store_id_by_name(store_name)
+        
+        # 既存レポートがあるかチェック
+        existing_report = db_manager.get_weekly_report(store_id, monday_date_str)
+        
+        draft_data = {
+            'daily_reports': daily_reports_data,
+            'topics': topics,
+            'impact_day': impact_day,
+            'quantitative_data': quantitative_data
+        }
+        
+        # 既存の生成レポートと修正レポートは保持
+        original_report = existing_report.get('generated_report', {}) if existing_report else {}
+        modified_report = existing_report.get('modified_report') if existing_report else None
+        
+        # データを保存（生成レポートがない場合は空の辞書で保存）
+        db_manager.save_weekly_data(
+            store_id,
+            monday_date_str,
+            draft_data,
+            original_report,
+            modified_report
+        )
+        
+        # 保存時刻を記録
+        from datetime import datetime
+        st.session_state['last_auto_save'] = datetime.now().strftime('%H:%M:%S')
+        
+        return True
+    except Exception as e:
+        print(f"自動保存エラー: {str(e)}")
+        return False
     
     def get_learning_stats(self) -> Dict:
         """学習に関する統計情報を取得します。"""
@@ -880,6 +917,16 @@ def show_report_creation_page():
     st.session_state['selected_store_for_report'] = selected_store_for_input
     
     st.markdown(f"**現在選択中:** {selected_store_for_input}店")
+    
+    # 自動保存状況を表示
+    if 'last_auto_save' not in st.session_state:
+        st.session_state['last_auto_save'] = None
+    
+    if st.session_state['last_auto_save']:
+        st.success(f"✅ 自動保存済み: {st.session_state['last_auto_save']}")
+    else:
+        st.info("💾 入力内容は自動的に保存されます")
+    
     st.markdown("---")
 
     # 選択された店舗のdaily_reports_inputを確実に初期化
@@ -907,8 +954,11 @@ def show_report_creation_page():
             key=f"{selected_store_for_input}_{date_str}_trend",
             height=80
         )
-        st.session_state['daily_reports_input'][selected_store_for_input][date_str]['trend'] = trend_value
         
+        # 値が変更された場合に自動保存
+        if trend_value != st.session_state['daily_reports_input'][selected_store_for_input][date_str]['trend']:
+            st.session_state['daily_reports_input'][selected_store_for_input][date_str]['trend'] = trend_value
+            
         # 日次要因
         factors_str = ", ".join(st.session_state['daily_reports_input'][selected_store_for_input].get(date_str, {}).get('factors', []))
         new_factors_str = st.text_input(
@@ -916,32 +966,89 @@ def show_report_creation_page():
             value=factors_str,
             key=f"{selected_store_for_input}_{date_str}_factors"
         )
-        st.session_state['daily_reports_input'][selected_store_for_input][date_str]['factors'] = [f.strip() for f in new_factors_str.split(',') if f.strip()]
+        
+        # 値が変更された場合に自動保存
+        new_factors_list = [f.strip() for f in new_factors_str.split(',') if f.strip()]
+        if new_factors_list != st.session_state['daily_reports_input'][selected_store_for_input][date_str]['factors']:
+            st.session_state['daily_reports_input'][selected_store_for_input][date_str]['factors'] = new_factors_list
+    
+    # 日次データ入力完了後に自動保存
+    if st.session_state.get('daily_reports_input', {}).get(selected_store_for_input, {}):
+        save_draft_data(
+            selected_store_for_input,
+            st.session_state['selected_monday'],
+            {selected_store_for_input: st.session_state['daily_reports_input'][selected_store_for_input]},
+            st.session_state.get('topics_input', ''),
+            st.session_state.get('impact_day_input', ''),
+            st.session_state.get('quantitative_data_input', '')
+        )
     
     st.markdown("---")
 
     st.header("3. 週全体の追加情報 (任意)")
-    st.session_state['topics_input'] = st.text_area(
+    
+    # TOPICS入力
+    new_topics = st.text_area(
         "**TOPICS:** 週全体を通して特筆すべき事項や出来事を入力してください。",
         value=st.session_state['topics_input'],
-        height=100
+        height=100,
+        key="topics_input_field"
     )
-    st.session_state['impact_day_input'] = st.text_area(
+    if new_topics != st.session_state['topics_input']:
+        st.session_state['topics_input'] = new_topics
+        # 自動保存
+        save_draft_data(
+            selected_store_for_input,
+            st.session_state['selected_monday'],
+            {selected_store_for_input: st.session_state['daily_reports_input'][selected_store_for_input]},
+            new_topics,
+            st.session_state.get('impact_day_input', ''),
+            st.session_state.get('quantitative_data_input', '')
+        )
+    
+    # インパクト大入力
+    new_impact_day = st.text_area(
         "**インパクト大:** 特に影響の大きかった日やイベント、その内容を記述してください。",
         value=st.session_state['impact_day_input'],
-        height=100
+        height=100,
+        key="impact_day_input_field"
     )
-    st.session_state['quantitative_data_input'] = st.text_area(
+    if new_impact_day != st.session_state['impact_day_input']:
+        st.session_state['impact_day_input'] = new_impact_day
+        # 自動保存
+        save_draft_data(
+            selected_store_for_input,
+            st.session_state['selected_monday'],
+            {selected_store_for_input: st.session_state['daily_reports_input'][selected_store_for_input]},
+            st.session_state.get('topics_input', ''),
+            new_impact_day,
+            st.session_state.get('quantitative_data_input', '')
+        )
+    
+    # 定量データ入力
+    new_quantitative_data = st.text_area(
         "**定量データ:** 売上、客数、客単価、プロパー消化率など、週の定量データを入力してください。",
         value=st.session_state['quantitative_data_input'],
-        height=100
+        height=100,
+        key="quantitative_data_input_field"
     )
+    if new_quantitative_data != st.session_state['quantitative_data_input']:
+        st.session_state['quantitative_data_input'] = new_quantitative_data
+        # 自動保存
+        save_draft_data(
+            selected_store_for_input,
+            st.session_state['selected_monday'],
+            {selected_store_for_input: st.session_state['daily_reports_input'][selected_store_for_input]},
+            st.session_state.get('topics_input', ''),
+            st.session_state.get('impact_day_input', ''),
+            new_quantitative_data
+        )
 
     st.markdown("---")
 
-    # AIレポート生成ボタン
-    st.header("4. AIによるレポート生成")
-    if st.button("AIレポートを生成", type="primary"):
+    # レポート出力ボタン
+    st.header("4. レポート出力")
+    if st.button("出力", type="primary"):
         # AI生成用に整形されたデータを作成
         # daily_reports_input は全店舗のデータを持っているため、現在選択中の店舗のデータのみを渡す
         selected_store_name = st.session_state['selected_store_for_report']
