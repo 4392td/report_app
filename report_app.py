@@ -855,6 +855,14 @@ def show_report_creation_page():
         monday_of_week = selected_date
     
     st.session_state['selected_monday'] = monday_of_week.strftime('%Y-%m-%d')
+    
+    # 日付が変更された場合の処理
+    if 'last_selected_monday' not in st.session_state or st.session_state['last_selected_monday'] != st.session_state['selected_monday']:
+        # 日付変更時は既存データ読み込みフラグをリセット
+        st.session_state['topics_loaded_for_week'] = False
+        # 自動保存時刻もリセット
+        st.session_state['last_auto_save'] = None
+    
     st.subheader(f"選択週: {monday_of_week.strftime('%Y年%m月%d日')} 〜 {(monday_of_week + timedelta(days=6)).strftime('%Y年%m月%d日')}")
     st.markdown("---")
 
@@ -899,13 +907,14 @@ def show_report_creation_page():
             st.session_state['daily_reports_input'][store_name] = existing_report['daily_reports'][store_name]
             
             # 最初に見つかった店舗のその他データも読み込み（TOPICSなどは共通）
-            if not st.session_state.get('topics_input') and not st.session_state.get('impact_day_input') and not st.session_state.get('quantitative_data_input'):
+            if not st.session_state.get('topics_loaded_for_week'):
                 st.session_state['topics_input'] = existing_report.get('topics', '')
                 st.session_state['impact_day_input'] = existing_report.get('impact_day', '')
                 st.session_state['quantitative_data_input'] = existing_report.get('quantitative_data', '')
                 st.session_state['generated_report_output'] = existing_report.get('generated_report', {})
                 st.session_state['modified_report_output'] = existing_report.get('modified_report')
                 st.session_state['report_id_to_edit'] = existing_report.get('id')
+                st.session_state['topics_loaded_for_week'] = True
             
     # 既存レポートがロードされたかチェックして表示
     loaded_stores = []
@@ -937,6 +946,25 @@ def show_report_creation_page():
             st.session_state['generated_report_output'] = None
             st.session_state['modified_report_output'] = None
             st.session_state['report_id_to_edit'] = None
+            st.session_state['topics_loaded_for_week'] = False
+            
+            # 新しい週に変更された場合は、改めて既存データを読み込み
+            for store_name in store_names:
+                store_id = db_manager.get_store_id_by_name(store_name)
+                existing_report = db_manager.get_weekly_report(store_id, st.session_state['selected_monday'])
+                
+                if existing_report and existing_report.get('daily_reports', {}).get(store_name):
+                    st.session_state['daily_reports_input'][store_name] = existing_report['daily_reports'][store_name]
+                    
+                    if not st.session_state.get('topics_loaded_for_week'):
+                        st.session_state['topics_input'] = existing_report.get('topics', '')
+                        st.session_state['impact_day_input'] = existing_report.get('impact_day', '')
+                        st.session_state['quantitative_data_input'] = existing_report.get('quantitative_data', '')
+                        st.session_state['generated_report_output'] = existing_report.get('generated_report', {})
+                        st.session_state['modified_report_output'] = existing_report.get('modified_report')
+                        st.session_state['report_id_to_edit'] = existing_report.get('id')
+                        st.session_state['topics_loaded_for_week'] = True
+        st.session_state['last_selected_monday'] = st.session_state['selected_monday']
         st.session_state['last_selected_monday'] = st.session_state['selected_monday']
 
     st.header("2. 日次レポートデータの入力")
