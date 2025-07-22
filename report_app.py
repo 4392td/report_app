@@ -1165,6 +1165,7 @@ def show_report_creation_page():
     # レポート出力ボタン
     st.header("4. レポート出力")
     if st.button("出力", type="primary"):
+        
         # AI生成用に整形されたデータを作成
         # daily_reports_input は全店舗のデータを持っているため、現在選択中の店舗のデータのみを渡す
         selected_store_name = st.session_state['selected_store_for_report']
