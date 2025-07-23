@@ -429,15 +429,8 @@ def save_draft_data(store_name: str, monday_date_str: str, daily_reports_data: D
             # 現在の店舗のデータを更新
             merged_daily_reports.update(daily_reports_data)
         
-        # 修正内容の自動保存も実行
-        if 'modified_trend_input' in st.session_state:
-            st.session_state['saved_modified_trend'] = st.session_state['modified_trend_input']
-        if 'modified_factors_input' in st.session_state:
-            st.session_state['saved_modified_factors'] = st.session_state['modified_factors_input']
-        if 'modified_questions_input' in st.session_state:
-            st.session_state['saved_modified_questions'] = st.session_state['modified_questions_input']
-        if 'edit_reason_input' in st.session_state:
-            st.session_state['saved_edit_reason'] = st.session_state['edit_reason_input']
+        # 修正内容の自動保存も実行（新しい方法を使用）
+        auto_save_modification()
         
         draft_data = {
             'daily_reports': merged_daily_reports,
@@ -515,25 +508,28 @@ class ApparelReportGenerator:
             
             # APIキーの有効性をテスト（簡単な呼び出しで確認）
             try:
-                # モデル一覧を取得してAPIキーの有効性を確認
-                models = self.openai_client.models.list()
-                st.info("✅ OpenAI APIキーが正常に検証されました。")
+                # より軽い呼び出しに変更
+                test_response = self.openai_client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": "test"}],
+                    max_tokens=1
+                )
                 return True
-            except openai.AuthenticationError:
-                st.error("❌ OpenAI APIキーが無効です。設定ページでAPIキーを正しく入力してください。")
+            except openai.AuthenticationError as auth_error:
+                st.error(f"❌ OpenAI APIキーが無効です: {str(auth_error)}")
                 return False
-            except openai.PermissionDeniedError:
-                st.error("❌ OpenAI APIキーの権限が不足しています。APIキーの権限を確認してください。")
+            except openai.PermissionDeniedError as perm_error:
+                st.error(f"❌ OpenAI APIキーの権限が不足しています: {str(perm_error)}")
                 return False
-            except openai.RateLimitError:
-                st.error("❌ OpenAI APIの利用制限に達しています。時間をおいて再度お試しください。")
+            except openai.RateLimitError as rate_error:
+                st.error(f"❌ OpenAI APIの利用制限に達しています: {str(rate_error)}")
                 return False
             except Exception as api_error:
-                st.error(f"❌ OpenAI API接続エラー: {str(api_error)}")
+                st.error(f"❌ OpenAI API接続エラー: {str(api_error)} (タイプ: {type(api_error).__name__})")
                 return False
                 
         except Exception as e:
-            st.error(f"❌ OpenAI API初期化エラー: {str(e)}")
+            st.error(f"❌ OpenAI API初期化エラー: {str(e)} (タイプ: {type(e).__name__})")
             return False
         
     def load_training_data(self, csv_file_path):
@@ -576,7 +572,6 @@ class ApparelReportGenerator:
             return None
             
         try:
-            st.info("🔍 API呼び出し開始...")
             response = self.openai_client.chat.completions.create( 
                 model="gpt-4o-mini",
                 messages=[
@@ -588,13 +583,8 @@ class ApparelReportGenerator:
                 timeout=30
             )
             
-            st.info("🔍 API呼び出し成功")
             result = response.choices[0].message.content
-            st.info(f"🔍 レスポンス取得: {len(result)}文字")
-            
-            parsed_result = self._parse_analysis_result(result)
-            st.info("🔍 パース完了")
-            return parsed_result
+            return self._parse_analysis_result(result)
             
         except Exception as e:
             st.error(f"AI分析中にエラーが発生しました: {str(e)}")
@@ -905,17 +895,56 @@ def get_current_week_monday() -> date:
 def auto_save_modification():
     """修正内容の自動保存"""
     try:
+        # 現在選択中の店舗と週の情報を取得
+        store_key = st.session_state.get('selected_store_for_report', 'default')
+        week_key = st.session_state.get('selected_monday', 'default')
+        session_key = f"{store_key}_{week_key}"
+        
+        # 修正内容用のセッションキーを作成
+        saved_modifications = st.session_state.get('saved_modifications', {})
+        if session_key not in saved_modifications:
+            saved_modifications[session_key] = {}
+        
         # 修正入力フィールドの値をセッション状態に保存
         if 'modified_trend_input' in st.session_state:
-            st.session_state['saved_modified_trend'] = st.session_state['modified_trend_input']
+            saved_modifications[session_key]['trend'] = st.session_state['modified_trend_input']
         if 'modified_factors_input' in st.session_state:
-            st.session_state['saved_modified_factors'] = st.session_state['modified_factors_input']
+            saved_modifications[session_key]['factors'] = st.session_state['modified_factors_input']
         if 'modified_questions_input' in st.session_state:
-            st.session_state['saved_modified_questions'] = st.session_state['modified_questions_input']
+            saved_modifications[session_key]['questions'] = st.session_state['modified_questions_input']
         if 'edit_reason_input' in st.session_state:
-            st.session_state['saved_edit_reason'] = st.session_state['edit_reason_input']
+            saved_modifications[session_key]['edit_reason'] = st.session_state['edit_reason_input']
+        
+        st.session_state['saved_modifications'] = saved_modifications
+        
     except Exception as e:
         pass  # エラーが発生しても処理を続行
+
+def get_saved_modification(field: str) -> str:
+    """保存された修正内容を取得"""
+    try:
+        store_key = st.session_state.get('selected_store_for_report', 'default')
+        week_key = st.session_state.get('selected_monday', 'default')
+        session_key = f"{store_key}_{week_key}"
+        
+        saved_modifications = st.session_state.get('saved_modifications', {})
+        return saved_modifications.get(session_key, {}).get(field, '')
+    except Exception:
+        return ''
+
+def clear_saved_modifications():
+    """保存された修正内容をクリア"""
+    try:
+        store_key = st.session_state.get('selected_store_for_report', 'default')
+        week_key = st.session_state.get('selected_monday', 'default')
+        session_key = f"{store_key}_{week_key}"
+        
+        saved_modifications = st.session_state.get('saved_modifications', {})
+        if session_key in saved_modifications:
+            del saved_modifications[session_key]
+        st.session_state['saved_modifications'] = saved_modifications
+    except Exception:
+        pass
 
 def show_report_creation_page():
     st.title("📈 週次レポート作成")
@@ -1369,16 +1398,39 @@ def show_report_creation_page():
                     st.session_state['modified_report_output'] = None # AI生成時に修正レポートはクリア
                     
                     # 古い修正内容もクリア
-                    if 'saved_modified_trend' in st.session_state:
-                        del st.session_state['saved_modified_trend']
-                    if 'saved_modified_factors' in st.session_state:
-                        del st.session_state['saved_modified_factors']
-                    if 'saved_modified_questions' in st.session_state:
-                        del st.session_state['saved_modified_questions']
-                    if 'saved_edit_reason' in st.session_state:
-                        del st.session_state['saved_edit_reason']
+                    clear_saved_modifications()
                     
-                    st.success("AIレポートの生成が完了しました！")
+                    # 自動的にレポートを保存
+                    store_id = db_manager.get_store_id_by_name(st.session_state['selected_store_for_report'])
+                    monday_date_str = st.session_state['selected_monday']
+                    current_store_name = st.session_state['selected_store_for_report']
+                    
+                    # 現在選択中の店舗・週の追加情報を取得
+                    topics_to_save = get_weekly_additional_data(current_store_name, monday_date_str, 'topics') or st.session_state.get('topics_input', '')
+                    impact_day_to_save = get_weekly_additional_data(current_store_name, monday_date_str, 'impact_day') or st.session_state.get('impact_day_input', '')
+                    quantitative_data_to_save = get_weekly_additional_data(current_store_name, monday_date_str, 'quantitative_data') or st.session_state.get('quantitative_data_input', '')
+                    
+                    data_to_save = {
+                        'daily_reports': st.session_state['daily_reports_input'][current_store_name],
+                        'topics': topics_to_save,
+                        'impact_day': impact_day_to_save,
+                        'quantitative_data': quantitative_data_to_save
+                    }
+                    
+                    is_updated = db_manager.save_weekly_data(
+                        store_id,
+                        monday_date_str,
+                        data_to_save,
+                        st.session_state['generated_report_output'],
+                        st.session_state['modified_report_output']
+                    )
+                    
+                    st.session_state['report_id_to_edit'] = db_manager.get_weekly_report(store_id, monday_date_str).get('id')
+                    
+                    if is_updated:
+                        st.success("✅ AIレポートが生成され、自動保存されました（更新）")
+                    else:
+                        st.success("✅ AIレポートが生成され、自動保存されました（新規）")
                 else:
                     st.error("AIレポートの生成に失敗しました。入力内容を確認するか、再度お試しください。")
                     
@@ -1397,37 +1449,6 @@ def show_report_creation_page():
             st.markdown("**AIからの質問:**")
             for q in st.session_state['generated_report_output'].get('questions', []):
                 st.write(f"- {q}")
-        
-        # レポート保存ボタン
-        if st.button("このレポートを保存", type="secondary"):
-            store_id = db_manager.get_store_id_by_name(st.session_state['selected_store_for_report'])
-            monday_date_str = st.session_state['selected_monday']
-            current_store_name = st.session_state['selected_store_for_report']
-            
-            # 現在選択中の店舗・週の追加情報を取得
-            topics_to_save = get_weekly_additional_data(current_store_name, monday_date_str, 'topics') or st.session_state.get('topics_input', '')
-            impact_day_to_save = get_weekly_additional_data(current_store_name, monday_date_str, 'impact_day') or st.session_state.get('impact_day_input', '')
-            quantitative_data_to_save = get_weekly_additional_data(current_store_name, monday_date_str, 'quantitative_data') or st.session_state.get('quantitative_data_input', '')
-            
-            data_to_save = {
-                'daily_reports': st.session_state['daily_reports_input'][current_store_name],
-                'topics': topics_to_save,
-                'impact_day': impact_day_to_save,
-                'quantitative_data': quantitative_data_to_save
-            }
-            
-            is_updated = db_manager.save_weekly_data(
-                store_id,
-                monday_date_str,
-                data_to_save,
-                st.session_state['generated_report_output'],
-                st.session_state['modified_report_output'] # まだ修正がないのでNoneの可能性
-            )
-            if is_updated:
-                st.success("週次レポートが更新されました！")
-            else:
-                st.success("週次レポートが保存されました！")
-            st.session_state['report_id_to_edit'] = db_manager.get_weekly_report(store_id, monday_date_str).get('id') # 保存したレポートのIDを取得
 
     st.markdown("---")
 
@@ -1439,10 +1460,10 @@ def show_report_creation_page():
         report_to_display = st.session_state['modified_report_output'] if st.session_state['modified_report_output'] else st.session_state['generated_report_output']
 
         # 保存された修正内容がある場合はそれを使用、なければ元のレポート内容を使用
-        default_trend = st.session_state.get('saved_modified_trend', report_to_display.get('trend', ''))
-        default_factors = st.session_state.get('saved_modified_factors', ", ".join(report_to_display.get('factors', [])))
-        default_questions = st.session_state.get('saved_modified_questions', "\n".join(report_to_display.get('questions', [])))
-        default_edit_reason = st.session_state.get('saved_edit_reason', '')
+        default_trend = get_saved_modification('trend') or report_to_display.get('trend', '')
+        default_factors = get_saved_modification('factors') or ", ".join(report_to_display.get('factors', []))
+        default_questions = get_saved_modification('questions') or "\n".join(report_to_display.get('questions', []))
+        default_edit_reason = get_saved_modification('edit_reason')
 
         modified_trend = st.text_area(
             "**修正後の週全体の動向と要因:**",
@@ -1510,7 +1531,7 @@ def show_report_creation_page():
                 }
 
                 # DBに保存し、学習エンジンに渡す
-                db_manager.save_weekly_data(
+                is_updated = db_manager.save_weekly_data(
                     store_id,
                     monday_date_str,
                     input_data_for_learning, # daily_reports_inputを直接渡す
@@ -1525,16 +1546,12 @@ def show_report_creation_page():
                 )
                 
                 # 修正内容の保存データをクリア
-                if 'saved_modified_trend' in st.session_state:
-                    del st.session_state['saved_modified_trend']
-                if 'saved_modified_factors' in st.session_state:
-                    del st.session_state['saved_modified_factors']
-                if 'saved_modified_questions' in st.session_state:
-                    del st.session_state['saved_modified_questions']
-                if 'saved_edit_reason' in st.session_state:
-                    del st.session_state['saved_edit_reason']
+                clear_saved_modifications()
                 
-                st.success("修正内容が保存され、システムが学習しました！")
+                if is_updated:
+                    st.success("✅ 修正内容が保存され、システムが学習しました！（データ更新）")
+                else:
+                    st.success("✅ 修正内容が保存され、システムが学習しました！（新規保存）")
                 st.rerun()
 
 
@@ -1846,6 +1863,7 @@ def show_settings_page():
 
 # メインナビゲーション
 st.sidebar.title("ナビゲーション")
+
 selection = st.sidebar.radio("Go to", ["週次レポート作成", "レポート履歴", "設定"])
 
 if selection == "週次レポート作成":
