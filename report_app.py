@@ -429,6 +429,16 @@ def save_draft_data(store_name: str, monday_date_str: str, daily_reports_data: D
             # 現在の店舗のデータを更新
             merged_daily_reports.update(daily_reports_data)
         
+        # 修正内容の自動保存も実行
+        if 'modified_trend_input' in st.session_state:
+            st.session_state['saved_modified_trend'] = st.session_state['modified_trend_input']
+        if 'modified_factors_input' in st.session_state:
+            st.session_state['saved_modified_factors'] = st.session_state['modified_factors_input']
+        if 'modified_questions_input' in st.session_state:
+            st.session_state['saved_modified_questions'] = st.session_state['modified_questions_input']
+        if 'edit_reason_input' in st.session_state:
+            st.session_state['saved_edit_reason'] = st.session_state['edit_reason_input']
+        
         draft_data = {
             'daily_reports': merged_daily_reports,
             'topics': topics or (existing_report.get('topics', '') if existing_report else ''),
@@ -492,11 +502,38 @@ class ApparelReportGenerator:
     def initialize_openai(self, api_key: str):
         """OpenAI APIクライアントを初期化"""
         try:
-            # ここをopenai.OpenAI()に修正 (バージョン1.0以降の記法)
-            self.openai_client = openai.OpenAI(api_key=api_key) 
-            return True
+            # APIキーの基本的なフォーマットチェック
+            if not api_key or not api_key.startswith('sk-'):
+                st.error("❌ OpenAI APIキーが無効です。APIキーは 'sk-' で始まる必要があります。")
+                return False
+            
+            # OpenAIクライアントを初期化（タイムアウト設定追加）
+            self.openai_client = openai.OpenAI(
+                api_key=api_key,
+                timeout=60.0  # 60秒でタイムアウト
+            )
+            
+            # APIキーの有効性をテスト（簡単な呼び出しで確認）
+            try:
+                # モデル一覧を取得してAPIキーの有効性を確認
+                models = self.openai_client.models.list()
+                st.info("✅ OpenAI APIキーが正常に検証されました。")
+                return True
+            except openai.AuthenticationError:
+                st.error("❌ OpenAI APIキーが無効です。設定ページでAPIキーを正しく入力してください。")
+                return False
+            except openai.PermissionDeniedError:
+                st.error("❌ OpenAI APIキーの権限が不足しています。APIキーの権限を確認してください。")
+                return False
+            except openai.RateLimitError:
+                st.error("❌ OpenAI APIの利用制限に達しています。時間をおいて再度お試しください。")
+                return False
+            except Exception as api_error:
+                st.error(f"❌ OpenAI API接続エラー: {str(api_error)}")
+                return False
+                
         except Exception as e:
-            st.error(f"OpenAI API初期化エラー: {str(e)}")
+            st.error(f"❌ OpenAI API初期化エラー: {str(e)}")
             return False
         
     def load_training_data(self, csv_file_path):
@@ -529,42 +566,71 @@ class ApparelReportGenerator:
         }
         enhanced_context = ""
         if self.memory_db and self.learning_engine:
-             enhanced_context = self.memory_db.find_similar_cases(current_data_for_context) # find_similar_casesを使用
+             enhanced_context = self.memory_db.find_similar_cases(current_data_for_context)
         
         system_prompt = self._build_system_prompt()
-        # 修正: _build_user_prompt に渡す daily_reports は、すでに選択されたストアのみのデータになっている
         user_prompt = self._build_user_prompt(daily_reports, topics, impact_day, quantitative_data, enhanced_context) 
         
         if not self.openai_client:
             st.error("OpenAIクライアントが初期化されていません。APIキーを確認してください。")
             return None
+            
         try:
-            # 修正: openai.ChatCompletion.create を self.openai_client.chat.completions.create に変更
+            st.info("🔍 API呼び出し開始...")
             response = self.openai_client.chat.completions.create( 
-                model="gpt-4o-mini", # 使用するモデル
+                model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.3, # 生成の多様性を調整 (低めにして安定性を優先)
-                max_tokens=1000 # 最大トークン数を調整 (出力形式に合わせて)
+                temperature=0.3,
+                max_tokens=1000,
+                timeout=30
             )
             
+            st.info("🔍 API呼び出し成功")
             result = response.choices[0].message.content
-            return self._parse_analysis_result(result)
+            st.info(f"🔍 レスポンス取得: {len(result)}文字")
             
+            parsed_result = self._parse_analysis_result(result)
+            st.info("🔍 パース完了")
+            return parsed_result
+            
+        except Exception as e:
+            st.error(f"AI分析中にエラーが発生しました: {str(e)}")
+            # デフォルトの分析結果を返す
+            return {
+                'trend': '分析できませんでした',
+                'factors': ['エラーのため分析を実行できませんでした'],
+                'questions': ['再度お試しください'],
+                'impact_analysis': '分析不可',
+                'next_actions': '再実行を推奨します'
+            }
+            
+        except openai.APIConnectionError as e:
+            st.error("🔍 デバッグ: OpenAI API接続エラー発生")
+            st.error(f"OpenAI APIへの接続に失敗しました: {str(e)}")
+            return None
         except openai.APIStatusError as e: # ここはopenaiモジュールレベルのエラークラスでOK
+            st.error("🔍 デバッグ: OpenAI APIStatusError発生")
+            st.error(f"🔍 デバッグ: ステータスコード: {e.status_code}")
             if e.status_code == 401: # 認証エラー (Unauthorized)
                 st.error("OpenAI APIキーが無効です。設定ページでAPIキーを正しく入力してください。")
             elif e.status_code == 429: # レート制限エラー (Too Many Requests)
                 st.error("OpenAI APIのリクエストがレート制限を超えました。しばらく待ってから再試行してください。")
+            elif e.status_code == 400: # Bad Request
+                st.error("リクエストが無効です。入力データを確認してください。")
+            elif e.status_code == 500: # Server Error
+                st.error("OpenAI APIサーバーエラーが発生しました。時間をおいて再試行してください。")
             else:
                 st.error(f"OpenAI APIエラー: {e.status_code} - {e.response}")
             return None
         except openai.APITimeoutError: # タイムアウトエラー
+            st.error("🔍 デバッグ: OpenAI APITimeoutError発生")
             st.error("OpenAI APIへのリクエストがタイムアウトしました。ネットワーク接続を確認し、再試行してください。")
             return None
         except Exception as e:
+            st.error(f"🔍 デバッグ: 予期しないエラー発生: {str(e)}")
             st.error(f"AI分析エラー: {str(e)}")
             return None
         
@@ -835,6 +901,21 @@ def get_current_week_monday() -> date:
     return get_monday_of_week(today)
 
 # --- Streamlit UI Components ---
+
+def auto_save_modification():
+    """修正内容の自動保存"""
+    try:
+        # 修正入力フィールドの値をセッション状態に保存
+        if 'modified_trend_input' in st.session_state:
+            st.session_state['saved_modified_trend'] = st.session_state['modified_trend_input']
+        if 'modified_factors_input' in st.session_state:
+            st.session_state['saved_modified_factors'] = st.session_state['modified_factors_input']
+        if 'modified_questions_input' in st.session_state:
+            st.session_state['saved_modified_questions'] = st.session_state['modified_questions_input']
+        if 'edit_reason_input' in st.session_state:
+            st.session_state['saved_edit_reason'] = st.session_state['edit_reason_input']
+    except Exception as e:
+        pass  # エラーが発生しても処理を続行
 
 def show_report_creation_page():
     st.title("📈 週次レポート作成")
@@ -1219,52 +1300,90 @@ def show_report_creation_page():
 
     # レポート出力ボタン
     st.header("4. レポート出力")
+    
     if st.button("出力", type="primary"):
-        
-        # AI生成用に整形されたデータを作成
-        # daily_reports_input は全店舗のデータを持っているため、現在選択中の店舗のデータのみを渡す
-        selected_store_name = st.session_state['selected_store_for_report']
-        
-        # 現在選択中の店舗・週の追加情報を取得
-        current_monday_str = st.session_state['selected_monday']
-        topics_data = get_weekly_additional_data(selected_store_name, current_monday_str, 'topics') or st.session_state.get('topics_input', '')
-        impact_day_data = get_weekly_additional_data(selected_store_name, current_monday_str, 'impact_day') or st.session_state.get('impact_day_input', '')
-        quantitative_data_data = get_weekly_additional_data(selected_store_name, current_monday_str, 'quantitative_data') or st.session_state.get('quantitative_data_input', '')
-        
-        data_for_ai = {
-            'daily_reports': {selected_store_name: st.session_state['daily_reports_input'][selected_store_name]},
-            'topics': topics_data,
-            'impact_day': impact_day_data,
-            'quantitative_data': quantitative_data_data
-        }
+        try:
+            # AI生成用に整形されたデータを作成
+            # daily_reports_input は全店舗のデータを持っているため、現在選択中の店舗のデータのみを渡す
+            selected_store_name = st.session_state['selected_store_for_report']
+            
+            # 現在選択中の店舗・週の追加情報を取得
+            current_monday_str = st.session_state['selected_monday']
+            topics_data = get_weekly_additional_data(selected_store_name, current_monday_str, 'topics') or st.session_state.get('topics_input', '')
+            impact_day_data = get_weekly_additional_data(selected_store_name, current_monday_str, 'impact_day') or st.session_state.get('impact_day_input', '')
+            quantitative_data_data = get_weekly_additional_data(selected_store_name, current_monday_str, 'quantitative_data') or st.session_state.get('quantitative_data_input', '')
+            
+            data_for_ai = {
+                'daily_reports': {selected_store_name: st.session_state['daily_reports_input'][selected_store_name]},
+                'topics': topics_data,
+                'impact_day': impact_day_data,
+                'quantitative_data': quantitative_data_data
+            }
 
-        # APIキーの確認
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-        if not openai_api_key:
-            st.error("❌ OpenAI APIキーが設定されていません。システム管理者にAPIキーの設定を依頼してください。")
-            st.info("管理者の方は、`.env`ファイルに`OPENAI_API_KEY=your_api_key_here`の形式でAPIキーを設定してください。")
-            return
-        
-        # OpenAIクライアントを初期化
-        if not report_generator.initialize_openai(openai_api_key):
-            # エラーメッセージは initialize_openai 内で表示済み
-            return
+            # APIキーの確認
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            if not openai_api_key:
+                st.error("❌ OpenAI APIキーが設定されていません。システム管理者にAPIキーの設定を依頼してください。")
+                st.info("管理者の方は、`.env`ファイルに`OPENAI_API_KEY=your_api_key_here`の形式でAPIキーを設定してください。")
+                return
+            
+            # OpenAIクライアントを初期化
+            if not report_generator.initialize_openai(openai_api_key):
+                # エラーメッセージは initialize_openai 内で表示済み
+                st.warning("💡 **OpenAI APIキーのトラブルシューティング:**")
+                with st.expander("APIキーの確認・更新方法", expanded=True):
+                    st.markdown("""
+                **1. OpenAI Platform にアクセス:**
+                - https://platform.openai.com/ にアクセス
+                - アカウントにログイン
+                
+                **2. APIキーの確認:**
+                - 左サイドバーの「API Keys」をクリック
+                - 既存のキーが有効か確認（使用制限やクレジット残高も確認）
+                
+                **3. 新しいAPIキーの作成（必要に応じて）:**
+                - 「Create new secret key」をクリック
+                - 名前を付けて作成
+                - 生成されたキーをコピー（`sk-proj-`で始まる文字列）
+                
+                **4. .envファイルの更新:**
+                    - プロジェクトフォルダの`.env`ファイルを開く
+                    - `OPENAI_API_KEY=新しいキー`の形式で更新
+                    - ファイルを保存
+                    
+                    **5. アプリの再起動:**
+                    - Streamlitアプリを再起動してください
+                    """)
+                return
 
-        with st.spinner("AIがレポートを分析・生成中です... 少々お待ちください。"):
-            generated_report = report_generator.analyze_trend_factors(
-                data_for_ai['daily_reports'], # ここではすでに選択された店舗のデータのみが渡される
-                data_for_ai['topics'],
-                data_for_ai['impact_day'],
-                data_for_ai['quantitative_data']
-            )
+            with st.spinner("AIがレポートを分析・生成中です... 少々お待ちください。"):
+                generated_report = report_generator.analyze_trend_factors(
+                    data_for_ai['daily_reports'], # ここではすでに選択された店舗のデータのみが渡される
+                    data_for_ai['topics'],
+                    data_for_ai['impact_day'],
+                    data_for_ai['quantitative_data']
+                )
 
-        if generated_report:
-            st.session_state['generated_report_output'] = generated_report
-            st.session_state['modified_report_output'] = None # AI生成時に修正レポートはクリア
-            st.success("AIレポートの生成が完了しました！")
-            st.rerun() # ページを再描画して結果を表示
-        else:
-            st.error("AIレポートの生成に失敗しました。入力内容を確認するか、再度お試しください。")
+                if generated_report:
+                    st.session_state['generated_report_output'] = generated_report
+                    st.session_state['modified_report_output'] = None # AI生成時に修正レポートはクリア
+                    
+                    # 古い修正内容もクリア
+                    if 'saved_modified_trend' in st.session_state:
+                        del st.session_state['saved_modified_trend']
+                    if 'saved_modified_factors' in st.session_state:
+                        del st.session_state['saved_modified_factors']
+                    if 'saved_modified_questions' in st.session_state:
+                        del st.session_state['saved_modified_questions']
+                    if 'saved_edit_reason' in st.session_state:
+                        del st.session_state['saved_edit_reason']
+                    
+                    st.success("AIレポートの生成が完了しました！")
+                else:
+                    st.error("AIレポートの生成に失敗しました。入力内容を確認するか、再度お試しください。")
+                    
+        except Exception as e:
+            st.error(f"レポート生成中にエラーが発生しました: {str(e)}")
 
     if st.session_state['generated_report_output']:
         st.subheader("生成された週次レポート (AI生成)")
@@ -1319,27 +1438,38 @@ def show_report_creation_page():
 
         report_to_display = st.session_state['modified_report_output'] if st.session_state['modified_report_output'] else st.session_state['generated_report_output']
 
+        # 保存された修正内容がある場合はそれを使用、なければ元のレポート内容を使用
+        default_trend = st.session_state.get('saved_modified_trend', report_to_display.get('trend', ''))
+        default_factors = st.session_state.get('saved_modified_factors', ", ".join(report_to_display.get('factors', [])))
+        default_questions = st.session_state.get('saved_modified_questions', "\n".join(report_to_display.get('questions', [])))
+        default_edit_reason = st.session_state.get('saved_edit_reason', '')
+
         modified_trend = st.text_area(
             "**修正後の週全体の動向と要因:**",
-            value=report_to_display.get('trend', ''),
+            value=default_trend,
             key="modified_trend_input",
-            height=200
+            height=200,
+            on_change=auto_save_modification
         )
         modified_factors_str = st.text_input(
             "**修正後の主な要因 (カンマ区切り):**",
-            value=", ".join(report_to_display.get('factors', [])),
-            key="modified_factors_input"
+            value=default_factors,
+            key="modified_factors_input",
+            on_change=auto_save_modification
         )
         modified_questions_str = st.text_area(
             "**修正後のAIへの質問:**",
-            value="\n".join(report_to_display.get('questions', [])),
+            value=default_questions,
             key="modified_questions_input",
-            height=100
+            height=100,
+            on_change=auto_save_modification
         )
         edit_reason = st.text_area(
             "**修正理由 (学習のために重要です):** 何を、なぜ修正したのかを具体的に記述してください。",
+            value=default_edit_reason,
             key="edit_reason_input",
-            height=100
+            height=100,
+            on_change=auto_save_modification
         )
         
         modified_factors = [f.strip() for f in modified_factors_str.split(',') if f.strip()]
@@ -1393,6 +1523,17 @@ def show_report_creation_page():
                     original_output=st.session_state['generated_report_output'],
                     modified_output=modified_report_data
                 )
+                
+                # 修正内容の保存データをクリア
+                if 'saved_modified_trend' in st.session_state:
+                    del st.session_state['saved_modified_trend']
+                if 'saved_modified_factors' in st.session_state:
+                    del st.session_state['saved_modified_factors']
+                if 'saved_modified_questions' in st.session_state:
+                    del st.session_state['saved_modified_questions']
+                if 'saved_edit_reason' in st.session_state:
+                    del st.session_state['saved_edit_reason']
+                
                 st.success("修正内容が保存され、システムが学習しました！")
                 st.rerun()
 
