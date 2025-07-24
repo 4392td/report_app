@@ -17,14 +17,17 @@ import os # 追加
 import pytz # 日本時間取得用に追加
 
 # .envファイルをロード
-load_dotenv()
+import pathlib
+script_dir = pathlib.Path(__file__).parent.absolute()
+env_path = script_dir / '.env'
+load_dotenv(dotenv_path=env_path)
 
 # 環境変数の再読み込みを強制
 import importlib
 import sys
 if 'dotenv' in sys.modules:
     importlib.reload(sys.modules['dotenv'])
-load_dotenv(override=True)
+load_dotenv(dotenv_path=env_path, override=True)
 
 def get_japan_time():
     """日本時間の現在時刻を取得する"""
@@ -1362,10 +1365,12 @@ def show_report_creation_page():
                 'quantitative_data': quantitative_data_data
             }
 
-            # APIキーの確認
-            # 環境変数を確実に再読み込み
-            load_dotenv(override=True)
+            # APIキーの確認（絶対パス使用で確実に読み込み）
+            script_dir = pathlib.Path(__file__).parent.absolute()
+            env_path = script_dir / '.env'
+            load_dotenv(dotenv_path=env_path, override=True)
             openai_api_key = os.getenv("OPENAI_API_KEY")
+            
             if not openai_api_key:
                 st.error("❌ OpenAI APIキーが設定されていません。システム管理者にAPIキーの設定を依頼してください。")
                 st.info("管理者の方は、`.env`ファイルに`OPENAI_API_KEY=your_api_key_here`の形式でAPIキーを設定してください。")
