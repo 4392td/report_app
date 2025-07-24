@@ -419,31 +419,24 @@ def save_draft_data(store_name: str, monday_date_str: str, daily_reports_data: D
         # 既存レポートがあるかチェック
         existing_report = db_manager.get_weekly_report(store_id, monday_date_str)
         
-        # 既存の日次レポートデータを取得し、新しいデータでマージ
-        if existing_report and existing_report.get('daily_reports'):
-            merged_daily_reports = existing_report['daily_reports'].copy()
-            # 現在の店舗のデータを更新
-            merged_daily_reports.update(daily_reports_data)
-        else:
-            # 新規の場合は全店舗の空データ構造を作成
-            merged_daily_reports = {}
-            all_stores = db_manager.get_all_stores()
-            for _, store_name_db in all_stores:
-                merged_daily_reports[store_name_db] = {}
-                # 週の7日分を初期化
-                for i in range(7):
-                    date_obj = datetime.strptime(monday_date_str, '%Y-%m-%d').date()
-                    current_date = date_obj + timedelta(days=i)
-                    date_str = current_date.strftime('%Y-%m-%d')
-                    merged_daily_reports[store_name_db][date_str] = {"trend": "", "factors": []}
-            # 現在の店舗のデータを更新
-            merged_daily_reports.update(daily_reports_data)
+        # 選択された店舗のデータのみを保存（店舗キーなしの構造）
+        # daily_reports_dataから該当店舗のデータを抽出
+        store_daily_reports = daily_reports_data.get(store_name, {})
+        
+        # 週の7日分を初期化（必要に応じて）
+        if not store_daily_reports:
+            date_obj = datetime.strptime(monday_date_str, '%Y-%m-%d').date()
+            for i in range(7):
+                current_date = date_obj + timedelta(days=i)
+                date_str = current_date.strftime('%Y-%m-%d')
+                if date_str not in store_daily_reports:
+                    store_daily_reports[date_str] = {"trend": "", "factors": []}
         
         # 修正内容の自動保存も実行（新しい方法を使用）
         auto_save_modification()
         
         draft_data = {
-            'daily_reports': merged_daily_reports,
+            'daily_reports': store_daily_reports,  # 店舗キーなしで直接日付データ
             'topics': topics or (existing_report.get('topics', '') if existing_report else ''),
             'impact_day': impact_day or (existing_report.get('impact_day', '') if existing_report else ''),
             'quantitative_data': quantitative_data or (existing_report.get('quantitative_data', '') if existing_report else '')
@@ -1054,14 +1047,15 @@ def show_report_creation_page():
     # ただし、タブのインデックスが変更された場合は、そのタブの店舗名に追従
     # ここでは、`selected_store_for_report` と `active_tab_index` の同期を強化
     
-    # 各店舗の既存レポートを個別に読み込み
+    # 各店舗の既存レポートを個別に読み込み（統一された方法）
     for store_name in store_names:
         store_id = db_manager.get_store_id_by_name(store_name)
         existing_report = db_manager.get_weekly_report(store_id, st.session_state['selected_monday'])
         
-        if existing_report and existing_report.get('daily_reports', {}).get(store_name):
-            # 当該店舗のデータが存在する場合のみ更新
-            st.session_state['daily_reports_input'][store_name] = existing_report['daily_reports'][store_name]
+        if existing_report:
+            # 新しいデータ構造（店舗キーなし）で直接日付データを設定
+            if existing_report.get('daily_reports'):
+                st.session_state['daily_reports_input'][store_name] = existing_report['daily_reports']
             
             # 週全体の追加情報を店舗ごと・週ごとに保存
             set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'topics', existing_report.get('topics', ''))
@@ -1070,6 +1064,10 @@ def show_report_creation_page():
             
             # 最初に見つかった店舗のその他データも読み込み（レポート出力データは共通）
             if not st.session_state.get('topics_loaded_for_week'):
+                # 後方互換性のため旧形式も更新
+                st.session_state['topics_input'] = existing_report.get('topics', '')
+                st.session_state['impact_day_input'] = existing_report.get('impact_day', '')
+                st.session_state['quantitative_data_input'] = existing_report.get('quantitative_data', '')
                 st.session_state['generated_report_output'] = existing_report.get('generated_report', {})
                 st.session_state['modified_report_output'] = existing_report.get('modified_report')
                 st.session_state['report_id_to_edit'] = existing_report.get('id')
@@ -1109,15 +1107,17 @@ def show_report_creation_page():
             st.session_state['report_id_to_edit'] = None
             st.session_state['topics_loaded_for_week'] = False
             
-            # 新しい週に変更された場合は、改めて既存データを読み込み
+            # 新しい週に変更された場合は、改めて既存データを読み込み（統一された方法）
             for store_name in store_names:
                 store_id = db_manager.get_store_id_by_name(store_name)
                 existing_report = db_manager.get_weekly_report(store_id, st.session_state['selected_monday'])
                 
-                if existing_report and existing_report.get('daily_reports', {}).get(store_name):
-                    st.session_state['daily_reports_input'][store_name] = existing_report['daily_reports'][store_name]
+                if existing_report:
+                    # 新しいデータ構造（店舗キーなし）で直接日付データを設定
+                    if existing_report.get('daily_reports'):
+                        st.session_state['daily_reports_input'][store_name] = existing_report['daily_reports']
                     
-                    # 週全体の追加情報を店舗ごと・週ごとに保存
+                    # 週全体の追加情報を店舗ごと・週ごとに保存（正しい週を使用）
                     set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'topics', existing_report.get('topics', ''))
                     set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'impact_day', existing_report.get('impact_day', ''))
                     set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'quantitative_data', existing_report.get('quantitative_data', ''))
@@ -1209,20 +1209,22 @@ def show_report_creation_page():
         if date_str not in st.session_state['daily_reports_input'][selected_store_for_input]:
             st.session_state['daily_reports_input'][selected_store_for_input][date_str] = {"trend": "", "factors": []}
         
-        # 日次動向
+        # 日次動向（保存済みデータを確実に表示）
+        current_trend_value = st.session_state['daily_reports_input'][selected_store_for_input].get(date_str, {}).get('trend', '')
         trend_value = st.text_area(
             f"**{current_date.strftime('%m/%d')} 動向:**",
-            value=st.session_state['daily_reports_input'][selected_store_for_input].get(date_str, {}).get('trend', ''),
+            value=current_trend_value,
             key=f"{selected_store_for_input}_{date_str}_trend",
             height=80
         )
         
         # 値が変更された場合に自動保存
-        if trend_value != st.session_state['daily_reports_input'][selected_store_for_input][date_str]['trend']:
+        if trend_value != current_trend_value:
             st.session_state['daily_reports_input'][selected_store_for_input][date_str]['trend'] = trend_value
             
-        # 日次要因
-        factors_str = ", ".join(st.session_state['daily_reports_input'][selected_store_for_input].get(date_str, {}).get('factors', []))
+        # 日次要因（保存済みデータを確実に表示）
+        current_factors = st.session_state['daily_reports_input'][selected_store_for_input].get(date_str, {}).get('factors', [])
+        factors_str = ", ".join(current_factors)
         new_factors_str = st.text_input(
             f"**{current_date.strftime('%m/%d')} 要因 (カンマ区切り):**",
             value=factors_str,
@@ -1231,7 +1233,7 @@ def show_report_creation_page():
         
         # 値が変更された場合に自動保存
         new_factors_list = [f.strip() for f in new_factors_str.split(',') if f.strip()]
-        if new_factors_list != st.session_state['daily_reports_input'][selected_store_for_input][date_str]['factors']:
+        if new_factors_list != current_factors:
             st.session_state['daily_reports_input'][selected_store_for_input][date_str]['factors'] = new_factors_list
     
     # 日次データ入力完了後に自動保存（全ての日付の入力が完了してから実行）
@@ -1365,21 +1367,15 @@ def show_report_creation_page():
                 'quantitative_data': quantitative_data_data
             }
 
-            # APIキーの確認（ローカル・リモート両対応）
+            # APIキーの確認（絶対パス使用で確実に読み込み）
+            script_dir = pathlib.Path(__file__).parent.absolute()
+            env_path = script_dir / '.env'
+            load_dotenv(dotenv_path=env_path, override=True)
             openai_api_key = os.getenv("OPENAI_API_KEY")
             
-            # ローカル環境の場合は.envファイルから読み込み
             if not openai_api_key:
-                script_dir = pathlib.Path(__file__).parent.absolute()
-                env_path = script_dir / '.env'
-                if env_path.exists():
-                    load_dotenv(dotenv_path=env_path, override=True)
-                    openai_api_key = os.getenv("OPENAI_API_KEY")
-            
-            if not openai_api_key:
-                st.error("❌ OpenAI APIキーが設定されていません。")
-                st.info("**ローカル環境**: `.env`ファイルに`OPENAI_API_KEY=your_api_key_here`の形式で設定")
-                st.info("**リモート環境**: プラットフォームの環境変数設定でAPIキーを設定")
+                st.error("❌ OpenAI APIキーが設定されていません。システム管理者にAPIキーの設定を依頼してください。")
+                st.info("管理者の方は、`.env`ファイルに`OPENAI_API_KEY=your_api_key_here`の形式でAPIキーを設定してください。")
                 return
             
             # OpenAIクライアントを初期化
