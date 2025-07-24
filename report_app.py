@@ -410,6 +410,37 @@ class DBManager:
         if similar_cases_context:
             return "\n【過去の修正済みレポート例】\n" + "\n".join(similar_cases_context)
         return ""
+    
+    def get_learning_stats(self):
+        """学習に関する統計情報を取得します。"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            total_reports = cursor.execute("SELECT COUNT(*) FROM weekly_reports").fetchone()[0]
+            corrections = cursor.execute("SELECT COUNT(*) FROM weekly_reports WHERE modified_report_json IS NOT NULL").fetchone()[0]
+            
+            # learning_patternsテーブルの存在確認
+            try:
+                total_patterns = cursor.execute("SELECT COUNT(*) FROM learning_patterns").fetchone()[0]
+            except Exception as e:
+                print(f"learning_patternsテーブルエラー: {e}")
+                total_patterns = 0
+            
+            conn.close()
+            
+            return {
+                'total_reports': total_reports,
+                'corrections': corrections,
+                'patterns': total_patterns
+            }
+        except Exception as e:
+            print(f"get_learning_stats エラー: {e}")
+            return {
+                'total_reports': 0,
+                'corrections': 0,
+                'patterns': 0
+            }
 
 def save_draft_data(store_name: str, monday_date_str: str, daily_reports_data: Dict, topics: str = "", impact_day: str = "", quantitative_data: str = ""):
     """入力途中のデータを自動保存する"""
@@ -464,23 +495,7 @@ def save_draft_data(store_name: str, monday_date_str: str, daily_reports_data: D
     except Exception as e:
         print(f"自動保存エラー: {str(e)}")
         return False
-    
-    def get_learning_stats(self) -> Dict:
-        """学習に関する統計情報を取得します。"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        
-        total_reports = cursor.execute("SELECT COUNT(*) FROM weekly_reports").fetchone()[0]
-        corrections = cursor.execute("SELECT COUNT(*) FROM weekly_reports WHERE modified_report_json IS NOT NULL").fetchone()[0]
-        total_patterns = cursor.execute("SELECT COUNT(*) FROM learning_patterns").fetchone()[0]
-        
-        conn.close()
-        
-        return {
-            'total_reports': total_reports,
-            'corrections': corrections,
-            'patterns': total_patterns
-        }
+
 
 class ApparelReportGenerator:
     def __init__(self):
@@ -1857,10 +1872,14 @@ def show_settings_page():
     st.subheader("学習データ管理 (開発中)")
     st.info("AIの精度向上に使用される学習データを管理します。")
 
-    learning_stats = db_manager.get_learning_stats()
-    st.write(f"登録されているレポート数: **{learning_stats['total_reports']}**")
-    st.write(f"ユーザー修正済みレポート数: **{learning_stats['corrections']}**")
-    st.write(f"学習パターン数: **{learning_stats['patterns']}**")
+    try:
+        learning_stats = db_manager.get_learning_stats()
+        st.write(f"登録されているレポート数: **{learning_stats['total_reports']}**")
+        st.write(f"ユーザー修正済みレポート数: **{learning_stats['corrections']}**")
+        st.write(f"学習パターン数: **{learning_stats['patterns']}**")
+    except Exception as e:
+        st.error(f"学習データの読み込みでエラーが発生しました: {str(e)}")
+        st.info("データベースの初期化が必要な可能性があります。")
 
     # 学習データのエクスポート機能 (例)
     st.markdown("---")
