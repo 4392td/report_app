@@ -19,6 +19,13 @@ import pytz # 日本時間取得用に追加
 # .envファイルをロード
 load_dotenv()
 
+# 環境変数の再読み込みを強制
+import importlib
+import sys
+if 'dotenv' in sys.modules:
+    importlib.reload(sys.modules['dotenv'])
+load_dotenv(override=True)
+
 def get_japan_time():
     """日本時間の現在時刻を取得する"""
     jst = pytz.timezone('Asia/Tokyo')
@@ -496,7 +503,13 @@ class ApparelReportGenerator:
         """OpenAI APIクライアントを初期化"""
         try:
             # APIキーの基本的なフォーマットチェック
-            if not api_key or not api_key.startswith('sk-'):
+            if not api_key or len(api_key.strip()) == 0:
+                st.error("❌ OpenAI APIキーが空です。")
+                return False
+                
+            api_key = api_key.strip()  # 前後の空白を除去
+            
+            if not api_key.startswith('sk-'):
                 st.error("❌ OpenAI APIキーが無効です。APIキーは 'sk-' で始まる必要があります。")
                 return False
             
@@ -1350,6 +1363,8 @@ def show_report_creation_page():
             }
 
             # APIキーの確認
+            # 環境変数を確実に再読み込み
+            load_dotenv(override=True)
             openai_api_key = os.getenv("OPENAI_API_KEY")
             if not openai_api_key:
                 st.error("❌ OpenAI APIキーが設定されていません。システム管理者にAPIキーの設定を依頼してください。")
