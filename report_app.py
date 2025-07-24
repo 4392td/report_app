@@ -1365,15 +1365,21 @@ def show_report_creation_page():
                 'quantitative_data': quantitative_data_data
             }
 
-            # APIキーの確認（絶対パス使用で確実に読み込み）
-            script_dir = pathlib.Path(__file__).parent.absolute()
-            env_path = script_dir / '.env'
-            load_dotenv(dotenv_path=env_path, override=True)
+            # APIキーの確認（ローカル・リモート両対応）
             openai_api_key = os.getenv("OPENAI_API_KEY")
             
+            # ローカル環境の場合は.envファイルから読み込み
             if not openai_api_key:
-                st.error("❌ OpenAI APIキーが設定されていません。システム管理者にAPIキーの設定を依頼してください。")
-                st.info("管理者の方は、`.env`ファイルに`OPENAI_API_KEY=your_api_key_here`の形式でAPIキーを設定してください。")
+                script_dir = pathlib.Path(__file__).parent.absolute()
+                env_path = script_dir / '.env'
+                if env_path.exists():
+                    load_dotenv(dotenv_path=env_path, override=True)
+                    openai_api_key = os.getenv("OPENAI_API_KEY")
+            
+            if not openai_api_key:
+                st.error("❌ OpenAI APIキーが設定されていません。")
+                st.info("**ローカル環境**: `.env`ファイルに`OPENAI_API_KEY=your_api_key_here`の形式で設定")
+                st.info("**リモート環境**: プラットフォームの環境変数設定でAPIキーを設定")
                 return
             
             # OpenAIクライアントを初期化
