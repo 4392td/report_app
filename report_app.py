@@ -1020,6 +1020,10 @@ def show_report_creation_page():
     if 'weekly_additional_data' not in st.session_state:
         st.session_state['weekly_additional_data'] = {}
     
+    # レポート出力データを店舗・週ごとに管理
+    if 'weekly_report_outputs' not in st.session_state:
+        st.session_state['weekly_report_outputs'] = {}
+    
     # 後方互換性のため、旧形式のデータがあれば移行
     if 'topics_input' not in st.session_state:
         st.session_state['topics_input'] = ""
@@ -1051,6 +1055,18 @@ def show_report_creation_page():
         if key not in st.session_state['weekly_additional_data']:
             st.session_state['weekly_additional_data'][key] = {}
         st.session_state['weekly_additional_data'][key][field] = value
+    
+    def get_weekly_report_output(store_name, monday_date, field):
+        """指定された店舗・週のレポート出力データを取得"""
+        key = get_weekly_key(store_name, monday_date)
+        return st.session_state['weekly_report_outputs'].get(key, {}).get(field, None)
+    
+    def set_weekly_report_output(store_name, monday_date, field, value):
+        """指定された店舗・週のレポート出力データを設定"""
+        key = get_weekly_key(store_name, monday_date)
+        if key not in st.session_state['weekly_report_outputs']:
+            st.session_state['weekly_report_outputs'][key] = {}
+        st.session_state['weekly_report_outputs'][key][field] = value
 
     # 選択された週の既存レポートをロード
     # まず、ストア選択タブの現在のインデックスをセッションステートに保持
@@ -1077,15 +1093,21 @@ def show_report_creation_page():
             set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'impact_day', existing_report.get('impact_day', ''))
             set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'quantitative_data', existing_report.get('quantitative_data', ''))
             
-            # 最初に見つかった店舗のその他データも読み込み（レポート出力データは共通）
+            # レポート出力データも店舗・週ごとに保存
+            set_weekly_report_output(store_name, st.session_state['selected_monday'], 'generated_report', existing_report.get('generated_report', {}))
+            set_weekly_report_output(store_name, st.session_state['selected_monday'], 'modified_report', existing_report.get('modified_report'))
+            set_weekly_report_output(store_name, st.session_state['selected_monday'], 'report_id', existing_report.get('id'))
+            
+            # 最初に見つかった店舗のその他データも読み込み（レポート出力データは共通→個別管理に変更）
             if not st.session_state.get('topics_loaded_for_week'):
-                # 後方互換性のため旧形式も更新
-                st.session_state['topics_input'] = existing_report.get('topics', '')
-                st.session_state['impact_day_input'] = existing_report.get('impact_day', '')
-                st.session_state['quantitative_data_input'] = existing_report.get('quantitative_data', '')
-                st.session_state['generated_report_output'] = existing_report.get('generated_report', {})
-                st.session_state['modified_report_output'] = existing_report.get('modified_report')
-                st.session_state['report_id_to_edit'] = existing_report.get('id')
+                # 後方互換性のため旧形式も更新（現在選択中の店舗のデータで更新）
+                if store_name == st.session_state.get('selected_store_for_report', store_names[0]):
+                    st.session_state['topics_input'] = existing_report.get('topics', '')
+                    st.session_state['impact_day_input'] = existing_report.get('impact_day', '')
+                    st.session_state['quantitative_data_input'] = existing_report.get('quantitative_data', '')
+                    st.session_state['generated_report_output'] = existing_report.get('generated_report', {})
+                    st.session_state['modified_report_output'] = existing_report.get('modified_report')
+                    st.session_state['report_id_to_edit'] = existing_report.get('id')
                 st.session_state['topics_loaded_for_week'] = True
             
     # 既存レポートがロードされたかチェックして表示
@@ -1137,7 +1159,13 @@ def show_report_creation_page():
                     set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'impact_day', existing_report.get('impact_day', ''))
                     set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'quantitative_data', existing_report.get('quantitative_data', ''))
                     
-                    if not st.session_state.get('topics_loaded_for_week'):
+                    # レポート出力データも店舗・週ごとに保存
+                    set_weekly_report_output(store_name, st.session_state['selected_monday'], 'generated_report', existing_report.get('generated_report', {}))
+                    set_weekly_report_output(store_name, st.session_state['selected_monday'], 'modified_report', existing_report.get('modified_report'))
+                    set_weekly_report_output(store_name, st.session_state['selected_monday'], 'report_id', existing_report.get('id'))
+                    
+                    # 現在選択中の店舗のデータで旧形式を更新
+                    if store_name == st.session_state.get('selected_store_for_report', store_names[0]) and not st.session_state.get('topics_loaded_for_week'):
                         # 後方互換性のため旧形式も更新
                         st.session_state['topics_input'] = existing_report.get('topics', '')
                         st.session_state['impact_day_input'] = existing_report.get('impact_day', '')
@@ -1167,10 +1195,22 @@ def show_report_creation_page():
         store_id = db_manager.get_store_id_by_name(selected_store_for_input)
         existing_report = db_manager.get_weekly_report(store_id, st.session_state['selected_monday'])
         
-        if existing_report and existing_report.get('daily_reports', {}).get(selected_store_for_input):
+        if existing_report and existing_report.get('daily_reports'):
             # 既存データがある場合は復元
-            st.session_state['daily_reports_input'][selected_store_for_input] = existing_report['daily_reports'][selected_store_for_input]
-            st.rerun()  # 画面を更新して新しいデータを表示
+            st.session_state['daily_reports_input'][selected_store_for_input] = existing_report['daily_reports']
+        
+        # 選択された店舗・週のレポート出力データを復元
+        current_monday = st.session_state['selected_monday']
+        st.session_state['generated_report_output'] = get_weekly_report_output(selected_store_for_input, current_monday, 'generated_report') or {}
+        st.session_state['modified_report_output'] = get_weekly_report_output(selected_store_for_input, current_monday, 'modified_report')
+        st.session_state['report_id_to_edit'] = get_weekly_report_output(selected_store_for_input, current_monday, 'report_id')
+        
+        # 週全体の追加情報も復元
+        st.session_state['topics_input'] = get_weekly_additional_data(selected_store_for_input, current_monday, 'topics') or ''
+        st.session_state['impact_day_input'] = get_weekly_additional_data(selected_store_for_input, current_monday, 'impact_day') or ''
+        st.session_state['quantitative_data_input'] = get_weekly_additional_data(selected_store_for_input, current_monday, 'quantitative_data') or ''
+        
+        st.rerun()  # 画面を更新して新しいデータを表示
     else:
         # 選択された店舗をセッションステートに保存
         st.session_state['selected_store_for_report'] = selected_store_for_input
@@ -1434,6 +1474,12 @@ def show_report_creation_page():
                     st.session_state['generated_report_output'] = generated_report
                     st.session_state['modified_report_output'] = None # AI生成時に修正レポートはクリア
                     
+                    # 新しいデータ構造にも保存
+                    current_store_name = st.session_state['selected_store_for_report']
+                    current_monday = st.session_state['selected_monday']
+                    set_weekly_report_output(current_store_name, current_monday, 'generated_report', generated_report)
+                    set_weekly_report_output(current_store_name, current_monday, 'modified_report', None)
+                    
                     # 古い修正内容もクリア
                     clear_saved_modifications()
                     
@@ -1463,6 +1509,9 @@ def show_report_creation_page():
                     )
                     
                     st.session_state['report_id_to_edit'] = db_manager.get_weekly_report(store_id, monday_date_str).get('id')
+                    
+                    # 新しいデータ構造にもreport_idを保存
+                    set_weekly_report_output(current_store_name, monday_date_str, 'report_id', st.session_state['report_id_to_edit'])
                     
                     if is_updated:
                         st.success("✅ AIレポートが生成され、自動保存されました（更新）")
@@ -1544,6 +1593,11 @@ def show_report_creation_page():
                     "edit_reason": edit_reason
                 }
                 st.session_state['modified_report_output'] = modified_report_data
+
+                # 新しいデータ構造にも保存
+                current_store_name = st.session_state['selected_store_for_report']
+                current_monday = st.session_state['selected_monday']
+                set_weekly_report_output(current_store_name, current_monday, 'modified_report', modified_report_data)
 
                 store_id = db_manager.get_store_id_by_name(st.session_state['selected_store_for_report'])
                 monday_date_str = st.session_state['selected_monday']
