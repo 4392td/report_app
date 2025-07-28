@@ -559,19 +559,49 @@ class ApparelReportGenerator:
     def load_training_data(self, csv_file_path):
         """ファインチューニング用CSVデータを読み込み"""
         try:
-            self.training_data = pd.read_csv(csv_file_path)
+            # CSVファイルを読み込み、最初の行をスキップする場合の処理
+            self.training_data = pd.read_csv(csv_file_path, skiprows=1 if csv_file_path == "training_data.csv" else 0)
+            # データの整合性をチェック
+            if self.training_data.empty:
+                try:
+                    # Streamlitコンテキストがある場合のみst.warningを実行
+                    st.warning(f"学習データ '{csv_file_path}' が空です。")
+                except:
+                    pass
+                return False
             return True
         except Exception as e:
-            st.error(f"学習データ読み込みエラー: {str(e)}")
+            try:
+                # Streamlitコンテキストがある場合のみst.errorを実行
+                st.error(f"学習データ読み込みエラー: {str(e)}")
+            except:
+                pass
             return False
     
     def load_text_training_data(self, csv_file_path):
         """テキスト学習データを読み込み"""
         try:
-            self.text_training_data = pd.read_csv(csv_file_path)
+            # text_training_data.csvは特別な処理が必要
+            if csv_file_path == "text_training_data.csv":
+                self.text_training_data = pd.read_csv(csv_file_path, skiprows=2)  # 最初の2行をスキップ
+            else:
+                self.text_training_data = pd.read_csv(csv_file_path)
+            
+            # データの整合性をチェック
+            if self.text_training_data.empty:
+                try:
+                    # Streamlitコンテキストがある場合のみst.warningを実行
+                    st.warning(f"テキスト学習データ '{csv_file_path}' が空です。")
+                except:
+                    pass
+                return False
             return True
         except Exception as e:
-            st.error(f"テキスト学習データ読み込みエラー: {str(e)}")
+            try:
+                # Streamlitコンテキストがある場合のみst.errorを実行
+                st.error(f"テキスト学習データ読み込みエラー: {str(e)}")
+            except:
+                pass
             return False
     
     
@@ -755,22 +785,51 @@ class ApparelReportGenerator:
         
         # 既存のtraining_data.csvからの文脈作成
         if self.training_data is not None and not self.training_data.empty:
-            if 'example_trend' in self.training_data.columns and not self.training_data['example_trend'].empty:
-                context.append("過去のレポート記述例 (動向):")
-                for ex in self.training_data['example_trend'].dropna().head(3):
-                    context.append(f"- {ex[:50]}...")
+            # カラム名を確認して適切に処理
+            training_columns = self.training_data.columns.tolist()
             
-            if 'example_factors' in self.training_data.columns and not self.training_data['example_factors'].empty:
+            # example_trend または trend_patterns カラムがある場合
+            trend_col = None
+            if 'example_trend' in training_columns:
+                trend_col = 'example_trend'
+            elif 'trend_patterns' in training_columns:
+                trend_col = 'trend_patterns'
+            
+            if trend_col and not self.training_data[trend_col].empty:
+                context.append("過去のレポート記述例 (動向):")
+                for ex in self.training_data[trend_col].dropna().head(3):
+                    if ex and str(ex).strip():
+                        context.append(f"- {str(ex)[:50]}...")
+            
+            # example_factors または factor_patterns カラムがある場合
+            factor_col = None
+            if 'example_factors' in training_columns:
+                factor_col = 'example_factors'
+            elif 'factor_patterns' in training_columns:
+                factor_col = 'factor_patterns'
+                
+            if factor_col and not self.training_data[factor_col].empty:
                 context.append("過去のレポート記述例 (要因):")
-                for ex in self.training_data['example_factors'].dropna().head(3):
-                    context.append(f"- {ex[:30]}...")
+                for ex in self.training_data[factor_col].dropna().head(3):
+                    if ex and str(ex).strip():
+                        context.append(f"- {str(ex)[:30]}...")
+            
+            # expected_output カラムがある場合
+            if 'expected_output' in training_columns and not self.training_data['expected_output'].empty:
+                context.append("過去のレポート記述例 (期待出力):")
+                for ex in self.training_data['expected_output'].dropna().head(3):
+                    if ex and str(ex).strip():
+                        context.append(f"- {str(ex)[:60]}...")
         
         # text_training_data.csvからの文脈作成
         if self.text_training_data is not None and not self.text_training_data.empty:
-            if 'output' in self.text_training_data.columns and not self.text_training_data['output'].empty:
+            text_columns = self.text_training_data.columns.tolist()
+            
+            if 'output' in text_columns and not self.text_training_data['output'].empty:
                 context.append("過去のレポート記述例 (テキスト学習データ):")
                 for ex in self.text_training_data['output'].dropna().head(3):
-                    context.append(f"- {ex[:60]}...")
+                    if ex and str(ex).strip():
+                        context.append(f"- {str(ex)[:60]}...")
         
         return "\n".join(context)
     
@@ -919,28 +978,31 @@ report_generator.set_dependencies(db_manager, learning_engine)
 TRAINING_CSV_FILE = "training_data.csv" # ここを実際のファイル名に置き換えてください！
 TEXT_TRAINING_CSV_FILE = "text_training_data.csv" # テキスト学習データファイル
 
-# training_data.csvの読み込み
+# training_data.csvの読み込み（表示なし）
 if Path(TRAINING_CSV_FILE).exists():
-    if report_generator.load_training_data(TRAINING_CSV_FILE):
-        st.sidebar.success(f"学習データ '{TRAINING_CSV_FILE}' を読み込みました。")
-    else:
-        st.sidebar.warning(f"学習データ '{TRAINING_CSV_FILE}' の読み込みに失敗しました。ファイルの内容を確認してください。")
-else:
-    st.sidebar.info(f"学習データ '{TRAINING_CSV_FILE}' が見つかりませんでした。")
+    report_generator.load_training_data(TRAINING_CSV_FILE)
+    # st.sidebar.success(f"学習データ '{TRAINING_CSV_FILE}' を読み込みました。")  # 表示削除
+    # 読み込み失敗時のみエラー表示（デバッグ用）
+    # else:
+    #     st.sidebar.warning(f"学習データ '{TRAINING_CSV_FILE}' の読み込みに失敗しました。ファイルの内容を確認してください。")
+# else:
+    # st.sidebar.info(f"学習データ '{TRAINING_CSV_FILE}' が見つかりませんでした。")  # 表示削除
 
-# text_training_data.csvの読み込み
+# text_training_data.csvの読み込み（表示なし）
 if Path(TEXT_TRAINING_CSV_FILE).exists():
-    if report_generator.load_text_training_data(TEXT_TRAINING_CSV_FILE):
-        st.sidebar.success(f"テキスト学習データ '{TEXT_TRAINING_CSV_FILE}' を読み込みました。")
-    else:
-        st.sidebar.warning(f"テキスト学習データ '{TEXT_TRAINING_CSV_FILE}' の読み込みに失敗しました。ファイルの内容を確認してください。")
-else:
-    st.sidebar.info(f"テキスト学習データ '{TEXT_TRAINING_CSV_FILE}' が見つかりませんでした。")
+    report_generator.load_text_training_data(TEXT_TRAINING_CSV_FILE)
+    # st.sidebar.success(f"テキスト学習データ '{TEXT_TRAINING_CSV_FILE}' を読み込みました。")  # 表示削除
+    # 読み込み失敗時のみエラー表示（デバッグ用）
+    # else:
+    #     st.sidebar.warning(f"テキスト学習データ '{TEXT_TRAINING_CSV_FILE}' の読み込みに失敗しました。ファイルの内容を確認してください。")
+# else:
+    # st.sidebar.info(f"テキスト学習データ '{TEXT_TRAINING_CSV_FILE}' が見つかりませんでした。")  # 表示削除
 
-# 学習データの有無を確認
+# 学習データの有無を確認（機能は維持）
 has_training_data = (report_generator.training_data is not None and not report_generator.training_data.empty)
 has_text_training_data = (report_generator.text_training_data is not None and not report_generator.text_training_data.empty)
 
+# 学習データが全くない場合のみ警告表示（重要なエラー情報として残す）
 if not has_training_data and not has_text_training_data:
     st.sidebar.warning("学習データが見つかりませんでした。学習機能は無効になります。")
 # ★ここまで追加するコード★
