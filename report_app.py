@@ -605,8 +605,86 @@ class ApparelReportGenerator:
             return False
     
     
+    def validate_quantitative_data_consistency(self, daily_reports: Dict, quantitative_data: str) -> Dict:
+        """定量データと日次レポートの整合性をチェック"""
+        consistency_issues = []
+        validation_notes = []
+        
+        if not quantitative_data or not daily_reports:
+            return {
+                'is_consistent': True,
+                'issues': [],
+                'notes': ['定量データまたは日次レポートが不足しているため、整合性チェックをスキップしました。']
+            }
+        
+        # 定量データから数値を抽出
+        quantitative_items = {}
+        for line in quantitative_data.split('\n'):
+            if ':' in line:
+                item, value = line.split(':', 1)
+                item = item.strip()
+                value = value.strip().replace('%', '').replace('％', '')
+                try:
+                    quantitative_items[item] = float(value)
+                except ValueError:
+                    continue
+        
+        # 日次レポートから売上関連のキーワードを検索
+        daily_content = ""
+        for day_data in daily_reports.values():
+            if isinstance(day_data, dict):
+                trend = day_data.get('trend', '')
+                factors = day_data.get('factors', [])
+                daily_content += f"{trend} {' '.join(factors) if isinstance(factors, list) else factors} "
+        
+        # 整合性チェックロジック
+        # 1. 売上が大幅に増減している場合の要因チェック
+        if '売上' in quantitative_items:
+            sales_change = quantitative_items['売上']
+            if abs(sales_change) > 10:  # 10%以上の変動
+                if sales_change > 10:
+                    # 売上増加の場合
+                    positive_keywords = ['好調', '増加', '上昇', '伸長', '向上', '改善', 'プラス']
+                    if not any(keyword in daily_content for keyword in positive_keywords):
+                        consistency_issues.append(f"売上が{sales_change}%増加しているが、日次レポートに売上向上の記述が見当たりません。")
+                else:
+                    # 売上減少の場合
+                    negative_keywords = ['不調', '減少', '下降', '低下', '悪化', 'マイナス', '苦戦']
+                    if not any(keyword in daily_content for keyword in negative_keywords):
+                        consistency_issues.append(f"売上が{abs(sales_change)}%減少しているが、日次レポートに売上不振の記述が見当たりません。")
+        
+        # 2. 客数と買上客数の関係チェック
+        if '入店客数' in quantitative_items and '買上客数' in quantitative_items:
+            store_visitors = quantitative_items['入店客数']
+            buyers = quantitative_items['買上客数']
+            if abs(store_visitors - buyers) > 20:  # 大きな差がある場合
+                validation_notes.append(f"入店客数({store_visitors}%)と買上客数({buyers}%)に{abs(store_visitors - buyers)}%の差があります。")
+        
+        # 3. 買上率の妥当性チェック
+        if '買上率' in quantitative_items:
+            conversion_rate = quantitative_items['買上率']
+            if abs(conversion_rate) > 50:  # 買上率の変動が50%を超える場合
+                validation_notes.append(f"買上率が{conversion_rate}%と大幅な変動を示しています。要因の記載を確認してください。")
+        
+        # 4. 客単価と販売単価の関係チェック
+        if '客単価' in quantitative_items and '販売単価' in quantitative_items:
+            avg_spend = quantitative_items['客単価']
+            avg_price = quantitative_items['販売単価']
+            # 客単価と販売単価が逆方向に大きく動いている場合
+            if (avg_spend > 10 and avg_price < -10) or (avg_spend < -10 and avg_price > 10):
+                validation_notes.append(f"客単価({avg_spend}%)と販売単価({avg_price}%)が逆方向に変動しています。SET率や購入点数の変化を確認してください。")
+        
+        return {
+            'is_consistent': len(consistency_issues) == 0,
+            'issues': consistency_issues,
+            'notes': validation_notes
+        }
+    
     def analyze_trend_factors(self, daily_reports: Dict, topics: str, impact_day: str, quantitative_data: str) -> Dict:
         """日次レポートを分析し、動向と要因を抽出"""
+        
+        # 整合性チェックを実行
+        consistency_check = self.validate_quantitative_data_consistency(daily_reports, quantitative_data)
         
         current_data_for_context = {
             'daily_reports': daily_reports,
@@ -619,7 +697,7 @@ class ApparelReportGenerator:
              enhanced_context = self.memory_db.find_similar_cases(current_data_for_context)
         
         system_prompt = self._build_system_prompt()
-        user_prompt = self._build_user_prompt(daily_reports, topics, impact_day, quantitative_data, enhanced_context) 
+        user_prompt = self._build_user_prompt(daily_reports, topics, impact_day, quantitative_data, enhanced_context, consistency_check) 
         
         if not self.openai_client:
             st.error("OpenAIクライアントが初期化されていません。APIキーを確認してください。")
@@ -627,6 +705,7 @@ class ApparelReportGenerator:
                 'trend': 'OpenAI APIキーが設定されていないため分析できませんでした',
                 'factors': ['APIキーを設定してください'],
                 'questions': ['設定ページでAPIキーを正しく入力してください'],
+                'consistency_check': consistency_check
             }
             
         try:
@@ -643,17 +722,20 @@ class ApparelReportGenerator:
             
             result = response.choices[0].message.content
             parsed_result = self._parse_analysis_result(result)
+            # 整合性チェック結果を結果に追加
+            parsed_result['consistency_check'] = consistency_check
             return parsed_result
             
         except Exception as e:
             st.error(f"AI分析中にエラーが発生しました: {str(e)}")
-            # デフォルトの分析結果を返す
+            # デフォルトの分析結果を返す（整合性チェック結果も含める）
             return {
                 'trend': '分析できませんでした',
                 'factors': ['エラーのため分析を実行できませんでした'],
                 'questions': ['再度お試しください'],
                 'impact_analysis': '分析不可',
-                'next_actions': '再実行を推奨します'
+                'next_actions': '再実行を推奨します',
+                'consistency_check': consistency_check
             }
             
         except openai.APIConnectionError as e:
@@ -662,6 +744,7 @@ class ApparelReportGenerator:
                 'trend': 'API接続エラーのため分析できませんでした',
                 'factors': ['OpenAI APIへの接続に失敗しました'],
                 'questions': ['ネットワーク接続を確認してください'],
+                'consistency_check': consistency_check
             }
         except openai.APIStatusError as e: # ここはopenaiモジュールレベルのエラークラスでOK
             if e.status_code == 401: # 認証エラー (Unauthorized)
@@ -684,6 +767,7 @@ class ApparelReportGenerator:
                 'trend': f'{error_msg}のため分析できませんでした',
                 'factors': ['APIエラーが発生しました'],
                 'questions': ['設定を確認して再試行してください'],
+                'consistency_check': consistency_check
             }
         except openai.APITimeoutError: # タイムアウトエラー
             st.error("OpenAI APIへのリクエストがタイムアウトしました。ネットワーク接続を確認し、再試行してください。")
@@ -691,6 +775,7 @@ class ApparelReportGenerator:
                 'trend': 'APIタイムアウトのため分析できませんでした',
                 'factors': ['APIリクエストがタイムアウトしました'],
                 'questions': ['ネットワーク接続を確認して再試行してください'],
+                'consistency_check': consistency_check
             }
         except Exception as e:
             st.error(f"AI分析エラー: {str(e)}")
@@ -698,6 +783,7 @@ class ApparelReportGenerator:
                 'trend': f'予期しないエラーのため分析できませんでした: {str(e)}',
                 'factors': ['システムエラーが発生しました'],
                 'questions': ['管理者に連絡してください'],
+                'consistency_check': consistency_check
             }
         
     
@@ -710,10 +796,11 @@ class ApparelReportGenerator:
         【分析要件】
         1.  動向と要因の因果関係を明確に記述すること。
         2.  「目論見以下」などの結果表現は、具体的な要因まで深掘りして説明すること。
-        3.  提供された定量データとの整合性を確認し、レポートに反映させること。
-        4.  TOPICSやインパクト大の事象が週全体に与えた影響度を評価し、レポートに含めること。
-        5.  簡潔で、アパレル店舗の上位部署が理解しやすい表現を用いること。
-        6.  週全体の動向として、**指定された店舗の情報を中心に**分析すること。（他の店舗の情報は参考程度にとどめる）
+        3.  提供された定量データ（売上、入店客数、買上客数、買上率、SET率、客単価、販売単価の各％）との整合性を確認し、レポートに反映させること。
+        4.  定量データ整合性チェック結果が提供された場合は、その指摘事項を考慮してレポートを作成すること。
+        5.  TOPICSやインパクト大の事象が週全体に与えた影響度を評価し、レポートに含めること。
+        6.  簡潔で、アパレル店舗の上位部署が理解しやすい表現を用いること。
+        7.  週全体の動向として、**指定された店舗の情報を中心に**分析すること。（他の店舗の情報は参考程度にとどめる）
 
         【出力形式】
         必ず以下のJSON形式で出力してください。
@@ -742,7 +829,7 @@ class ApparelReportGenerator:
         
         return base_prompt
     
-    def _build_user_prompt(self, daily_reports: Dict, topics: str, impact_day: str, quantitative_data: str, enhanced_context: str) -> str:
+    def _build_user_prompt(self, daily_reports: Dict, topics: str, impact_day: str, quantitative_data: str, enhanced_context: str, consistency_check: Dict = None) -> str:
         """ユーザープロンプトを構築"""
         prompt = "以下の情報から週次レポートをJSON形式で作成してください。\n\n"
         
@@ -769,6 +856,20 @@ class ApparelReportGenerator:
         
         if quantitative_data:
             prompt += f"\n【定量データ】\n{quantitative_data}\n"
+        
+        # 整合性チェック結果を追加
+        if consistency_check:
+            if not consistency_check['is_consistent'] or consistency_check['notes']:
+                prompt += f"\n【定量データ整合性チェック結果】\n"
+                if not consistency_check['is_consistent']:
+                    prompt += "⚠️ 整合性の問題が検出されました:\n"
+                    for issue in consistency_check['issues']:
+                        prompt += f"- {issue}\n"
+                if consistency_check['notes']:
+                    prompt += "📊 注意事項:\n"
+                    for note in consistency_check['notes']:
+                        prompt += f"- {note}\n"
+                prompt += "上記の整合性チェック結果を考慮してレポートを作成してください。\n"
         
         if enhanced_context:
             prompt += f"\n{enhanced_context}\n" 
@@ -1482,14 +1583,62 @@ def show_report_creation_page():
         ):
             st.rerun()  # 保存後に画面を更新
     
-    # 定量データ入力
-    new_quantitative_data = st.text_area(
-        f"**定量データ ({current_store}店用):** 売上、客数、客単価、プロパー消化率など、週の定量データを入力してください。",
-        value=current_quantitative_data,
-        height=100,
-        key="quantitative_data_input_field"
-    )
-    if new_quantitative_data != current_quantitative_data:
+    # 定量データ入力（事前定義項目）
+    st.markdown(f"**定量データ ({current_store}店用):** 各項目に数値（％）を入力してください。")
+    
+    # 定量データ項目の定義
+    quantitative_items = [
+        "売上",
+        "入店客数", 
+        "買上客数",
+        "買上率",
+        "SET率",
+        "客単価",
+        "販売単価"
+    ]
+    
+    # セッションステートで定量データを管理
+    quantitative_key = f"quantitative_data_{current_store}_{current_monday}"
+    if quantitative_key not in st.session_state:
+        # 既存データがあれば解析して初期化
+        existing_data = current_quantitative_data
+        st.session_state[quantitative_key] = {}
+        if existing_data:
+            # 既存のテキストデータから数値を抽出（可能な場合）
+            for item in quantitative_items:
+                st.session_state[quantitative_key][item] = ""
+        else:
+            for item in quantitative_items:
+                st.session_state[quantitative_key][item] = ""
+    
+    # 各項目の入力フィールドを作成
+    quantitative_data_changed = False
+    cols = st.columns(2)  # 2列レイアウト
+    
+    for i, item in enumerate(quantitative_items):
+        with cols[i % 2]:
+            old_value = st.session_state[quantitative_key].get(item, "")
+            new_value = st.text_input(
+                f"{item} ％",
+                value=old_value,
+                key=f"quant_{item}_{current_store}_{current_monday}",
+                placeholder="数値のみ"
+            )
+            if new_value != old_value:
+                st.session_state[quantitative_key][item] = new_value
+                quantitative_data_changed = True
+    
+    # 定量データを文字列形式に変換
+    quantitative_items_list = []
+    for item in quantitative_items:
+        value = st.session_state[quantitative_key].get(item, "")
+        if value.strip():
+            quantitative_items_list.append(f"{item}: {value}%")
+    
+    new_quantitative_data = "\n".join(quantitative_items_list)
+    
+    # データが変更された場合の処理
+    if quantitative_data_changed or new_quantitative_data != current_quantitative_data:
         # 新しいデータ構造に保存
         set_weekly_additional_data(current_store, current_monday, 'quantitative_data', new_quantitative_data)
         # 後方互換性のため旧形式も更新
@@ -1632,6 +1781,25 @@ def show_report_creation_page():
 
     if st.session_state['generated_report_output']:
         st.subheader("生成された週次レポート (AI生成)")
+        
+        # 整合性チェック結果を表示
+        if 'consistency_check' in st.session_state['generated_report_output']:
+            consistency_check = st.session_state['generated_report_output']['consistency_check']
+            
+            if not consistency_check['is_consistent'] or consistency_check['notes']:
+                with st.expander("📊 定量データ整合性チェック結果", expanded=True):
+                    if not consistency_check['is_consistent']:
+                        st.warning("⚠️ **整合性の問題が検出されました:**")
+                        for issue in consistency_check['issues']:
+                            st.error(f"• {issue}")
+                    
+                    if consistency_check['notes']:
+                        st.info("📝 **確認事項:**")
+                        for note in consistency_check['notes']:
+                            st.info(f"• {note}")
+                    
+                    st.markdown("---")
+        
         st.markdown("**週全体の動向と要因:**")
         
         # 安全なアクセスに修正
