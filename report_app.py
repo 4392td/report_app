@@ -593,7 +593,11 @@ class ApparelReportGenerator:
         
         if not self.openai_client:
             st.error("OpenAIクライアントが初期化されていません。APIキーを確認してください。")
-            return None
+            return {
+                'trend': 'OpenAI APIキーが設定されていないため分析できませんでした',
+                'factors': ['APIキーを設定してください'],
+                'questions': ['設定ページでAPIキーを正しく入力してください'],
+            }
             
         try:
             response = self.openai_client.chat.completions.create( 
@@ -608,7 +612,8 @@ class ApparelReportGenerator:
             )
             
             result = response.choices[0].message.content
-            return self._parse_analysis_result(result)
+            parsed_result = self._parse_analysis_result(result)
+            return parsed_result
             
         except Exception as e:
             st.error(f"AI分析中にエラーが発生しました: {str(e)}")
@@ -622,31 +627,48 @@ class ApparelReportGenerator:
             }
             
         except openai.APIConnectionError as e:
-            st.error("🔍 デバッグ: OpenAI API接続エラー発生")
             st.error(f"OpenAI APIへの接続に失敗しました: {str(e)}")
-            return None
+            return {
+                'trend': 'API接続エラーのため分析できませんでした',
+                'factors': ['OpenAI APIへの接続に失敗しました'],
+                'questions': ['ネットワーク接続を確認してください'],
+            }
         except openai.APIStatusError as e: # ここはopenaiモジュールレベルのエラークラスでOK
-            st.error("🔍 デバッグ: OpenAI APIStatusError発生")
-            st.error(f"🔍 デバッグ: ステータスコード: {e.status_code}")
             if e.status_code == 401: # 認証エラー (Unauthorized)
                 st.error("OpenAI APIキーが無効です。設定ページでAPIキーを正しく入力してください。")
+                error_msg = "APIキーが無効です"
             elif e.status_code == 429: # レート制限エラー (Too Many Requests)
                 st.error("OpenAI APIのリクエストがレート制限を超えました。しばらく待ってから再試行してください。")
+                error_msg = "API利用制限に達しました"
             elif e.status_code == 400: # Bad Request
                 st.error("リクエストが無効です。入力データを確認してください。")
+                error_msg = "リクエストが無効です"
             elif e.status_code == 500: # Server Error
                 st.error("OpenAI APIサーバーエラーが発生しました。時間をおいて再試行してください。")
+                error_msg = "APIサーバーエラーです"
             else:
                 st.error(f"OpenAI APIエラー: {e.status_code} - {e.response}")
-            return None
+                error_msg = f"APIエラー ({e.status_code})"
+            
+            return {
+                'trend': f'{error_msg}のため分析できませんでした',
+                'factors': ['APIエラーが発生しました'],
+                'questions': ['設定を確認して再試行してください'],
+            }
         except openai.APITimeoutError: # タイムアウトエラー
-            st.error("🔍 デバッグ: OpenAI APITimeoutError発生")
             st.error("OpenAI APIへのリクエストがタイムアウトしました。ネットワーク接続を確認し、再試行してください。")
-            return None
+            return {
+                'trend': 'APIタイムアウトのため分析できませんでした',
+                'factors': ['APIリクエストがタイムアウトしました'],
+                'questions': ['ネットワーク接続を確認して再試行してください'],
+            }
         except Exception as e:
-            st.error(f"🔍 デバッグ: 予期しないエラー発生: {str(e)}")
             st.error(f"AI分析エラー: {str(e)}")
-            return None
+            return {
+                'trend': f'予期しないエラーのため分析できませんでした: {str(e)}',
+                'factors': ['システムエラーが発生しました'],
+                'questions': ['管理者に連絡してください'],
+            }
         
     
     def _build_system_prompt(self) -> str:
@@ -700,8 +722,13 @@ class ApparelReportGenerator:
         for store, data in daily_reports.items(): # このループは一度しか回らないはず
             prompt += f"- **{store}店**:\n"
             for date, report in data.items():
-                trend_text = report['trend'] if report['trend'] else "未入力"
-                factors_text = ", ".join(report['factors']) if report['factors'] else "なし"
+                # 安全なアクセスに修正
+                if isinstance(report, dict):
+                    trend_text = report.get('trend', '') if report.get('trend', '') else "未入力"
+                    factors_text = ", ".join(report.get('factors', [])) if report.get('factors', []) else "なし"
+                else:
+                    trend_text = "データ形式エラー"
+                    factors_text = "データ形式エラー"
                 prompt += f"  - {date}: 動向={trend_text}, 要因={factors_text}\n"
         
         if topics:
@@ -760,20 +787,38 @@ class ApparelReportGenerator:
         if not json_match:
             try:
                 json_data = json.loads(result)
-            except json.JSONDecodeError:
-                st.error("AIからの出力が有効なJSON形式ではありませんでした。開発者向け情報: \n" + result)
+            except json.JSONDecodeError as e:
+                # JSONパースエラーの場合、エラーメッセージをtrendフィールドに設定
+                error_msg = f"エラー: AIからの出力が有効なJSON形式ではありませんでした。生の出力: {result[:200]}..."
+                parsed['trend'] = error_msg
+                try:
+                    # Streamlitコンテキストがある場合のみst.errorを実行
+                    st.error("AIからの出力が有効なJSON形式ではありませんでした。開発者向け情報: \n" + result)
+                except:
+                    # Streamlitコンテキスト外では無視
+                    pass
                 return parsed
         else:
             try:
                 json_string = json_match.group(1)
                 json_data = json.loads(json_string)
-            except json.JSONDecodeError:
-                st.error("AIからのJSON出力のパースに失敗しました。開発者向け情報: \n" + json_string)
+            except json.JSONDecodeError as e:
+                # JSONパースエラーの場合、エラーメッセージをtrendフィールドに設定
+                error_msg = f"エラー: AIからのJSON出力のパースに失敗しました。生の出力: {json_string[:200]}..."
+                parsed['trend'] = error_msg
+                try:
+                    # Streamlitコンテキストがある場合のみst.errorを実行
+                    st.error("AIからのJSON出力のパースに失敗しました。開発者向け情報: \n" + json_string)
+                except:
+                    # Streamlitコンテキスト外では無視
+                    pass
                 return parsed
 
         parsed['trend'] = json_data.get('trend', '').strip()
         parsed['factors'] = [f.strip() for f in json_data.get('factors', []) if f.strip()][:3]
         parsed['questions'] = [q.strip() for q in json_data.get('questions', []) if q.strip()]
+        
+        return parsed
         
         return parsed
 
@@ -1526,15 +1571,21 @@ def show_report_creation_page():
     if st.session_state['generated_report_output']:
         st.subheader("生成された週次レポート (AI生成)")
         st.markdown("**週全体の動向と要因:**")
-        st.write(st.session_state['generated_report_output'].get('trend', ''))
-        st.markdown("**主な要因:**")
-        for i, factor in enumerate(st.session_state['generated_report_output'].get('factors', [])):
-            st.write(f"- {factor}")
         
-        if st.session_state['generated_report_output'].get('questions'):
-            st.markdown("**AIからの質問:**")
-            for q in st.session_state['generated_report_output'].get('questions', []):
-                st.write(f"- {q}")
+        # 安全なアクセスに修正
+        report_output = st.session_state['generated_report_output']
+        if isinstance(report_output, dict):
+            st.write(report_output.get('trend', ''))
+            st.markdown("**主な要因:**")
+            for i, factor in enumerate(report_output.get('factors', [])):
+                st.write(f"- {factor}")
+            
+            if report_output.get('questions'):
+                st.markdown("**AIからの質問:**")
+                for q in report_output.get('questions', []):
+                    st.write(f"- {q}")
+        else:
+            st.write("レポートの形式が正しくありません。再度生成してください。")
 
     st.markdown("---")
 
