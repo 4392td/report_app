@@ -617,15 +617,19 @@ class ApparelReportGenerator:
                 'notes': ['定量データまたは日次レポートが不足しているため、整合性チェックをスキップしました。']
             }
         
-        # 定量データから数値を抽出
+        # 定量データから数値を抽出し、前年比として解釈
         quantitative_items = {}
+        quantitative_changes = {}  # 前年比から増減率を計算
         for line in quantitative_data.split('\n'):
             if ':' in line:
                 item, value = line.split(':', 1)
                 item = item.strip()
                 value = value.strip().replace('%', '').replace('％', '')
                 try:
-                    quantitative_items[item] = float(value)
+                    ratio_value = float(value)  # 前年比の値（例：97% = 97）
+                    change_rate = ratio_value - 100  # 増減率に変換（例：97 - 100 = -3%）
+                    quantitative_items[item] = ratio_value
+                    quantitative_changes[item] = change_rate
                 except ValueError:
                     continue
         
@@ -639,40 +643,46 @@ class ApparelReportGenerator:
         
         # 整合性チェックロジック
         # 1. 売上が大幅に増減している場合の要因チェック
-        if '売上' in quantitative_items:
-            sales_change = quantitative_items['売上']
-            if abs(sales_change) > 10:  # 10%以上の変動
+        if '売上' in quantitative_changes:
+            sales_change = quantitative_changes['売上']
+            sales_ratio = quantitative_items['売上']
+            if abs(sales_change) > 10:  # 10ポイント以上の変動
                 if sales_change > 10:
-                    # 売上増加の場合
+                    # 売上増加の場合（前年比110%以上）
                     positive_keywords = ['好調', '増加', '上昇', '伸長', '向上', '改善', 'プラス']
                     if not any(keyword in daily_content for keyword in positive_keywords):
-                        consistency_issues.append(f"売上が{sales_change}%増加しているが、日次レポートに売上向上の記述が見当たりません。")
+                        consistency_issues.append(f"売上が前年比{sales_ratio}%（{sales_change:+.1f}ポイント）と増加しているが、日次レポートに売上向上の記述が見当たりません。")
                 else:
-                    # 売上減少の場合
+                    # 売上減少の場合（前年比90%未満）
                     negative_keywords = ['不調', '減少', '下降', '低下', '悪化', 'マイナス', '苦戦']
                     if not any(keyword in daily_content for keyword in negative_keywords):
-                        consistency_issues.append(f"売上が{abs(sales_change)}%減少しているが、日次レポートに売上不振の記述が見当たりません。")
+                        consistency_issues.append(f"売上が前年比{sales_ratio}%（{sales_change:+.1f}ポイント）と減少しているが、日次レポートに売上不振の記述が見当たりません。")
         
         # 2. 客数と買上客数の関係チェック
-        if '入店客数' in quantitative_items and '買上客数' in quantitative_items:
-            store_visitors = quantitative_items['入店客数']
-            buyers = quantitative_items['買上客数']
-            if abs(store_visitors - buyers) > 20:  # 大きな差がある場合
-                validation_notes.append(f"入店客数({store_visitors}%)と買上客数({buyers}%)に{abs(store_visitors - buyers)}%の差があります。")
+        if '入店客数' in quantitative_changes and '買上客数' in quantitative_changes:
+            store_visitors_change = quantitative_changes['入店客数']
+            buyers_change = quantitative_changes['買上客数']
+            store_visitors_ratio = quantitative_items['入店客数']
+            buyers_ratio = quantitative_items['買上客数']
+            if abs(store_visitors_change - buyers_change) > 20:  # 大きな差がある場合
+                validation_notes.append(f"入店客数の変動（前年比{store_visitors_ratio}%、{store_visitors_change:+.1f}ポイント）と買上客数の変動（前年比{buyers_ratio}%、{buyers_change:+.1f}ポイント）に{abs(store_visitors_change - buyers_change):.1f}ポイントの差があります。")
         
         # 3. 買上率の妥当性チェック
-        if '買上率' in quantitative_items:
-            conversion_rate = quantitative_items['買上率']
-            if abs(conversion_rate) > 50:  # 買上率の変動が50%を超える場合
-                validation_notes.append(f"買上率が{conversion_rate}%と大幅な変動を示しています。要因の記載を確認してください。")
+        if '買上率' in quantitative_changes:
+            conversion_change = quantitative_changes['買上率']
+            conversion_ratio = quantitative_items['買上率']
+            if abs(conversion_change) > 20:  # 買上率の変動が20ポイントを超える場合
+                validation_notes.append(f"買上率が前年比{conversion_ratio}%（{conversion_change:+.1f}ポイント）と大幅な変動を示しています。要因の記載を確認してください。")
         
         # 4. 客単価と販売単価の関係チェック
-        if '客単価' in quantitative_items and '販売単価' in quantitative_items:
-            avg_spend = quantitative_items['客単価']
-            avg_price = quantitative_items['販売単価']
+        if '客単価' in quantitative_changes and '販売単価' in quantitative_changes:
+            avg_spend_change = quantitative_changes['客単価']
+            avg_price_change = quantitative_changes['販売単価']
+            avg_spend_ratio = quantitative_items['客単価']
+            avg_price_ratio = quantitative_items['販売単価']
             # 客単価と販売単価が逆方向に大きく動いている場合
-            if (avg_spend > 10 and avg_price < -10) or (avg_spend < -10 and avg_price > 10):
-                validation_notes.append(f"客単価({avg_spend}%)と販売単価({avg_price}%)が逆方向に変動しています。SET率や購入点数の変化を確認してください。")
+            if (avg_spend_change > 10 and avg_price_change < -10) or (avg_spend_change < -10 and avg_price_change > 10):
+                validation_notes.append(f"客単価（前年比{avg_spend_ratio}%、{avg_spend_change:+.1f}ポイント）と販売単価（前年比{avg_price_ratio}%、{avg_price_change:+.1f}ポイント）が逆方向に変動しています。SET率や購入点数の変化を確認してください。")
         
         return {
             'is_consistent': len(consistency_issues) == 0,
