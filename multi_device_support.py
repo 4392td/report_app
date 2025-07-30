@@ -208,14 +208,20 @@ def show_active_devices(store_name: str):
         else:
             st.success(f"✅ **{store_name}店 - 単独編集中**")
 
-def auto_refresh_data(store_name: str = None):
+def auto_refresh_data(store_name: str = None, context: str = "default"):
     """定期的にデータを更新"""
-    # 店舗名とセッションIDを含めたユニークなキーを生成
+    import random
+    
+    # 店舗名、コンテキスト、セッションID、ランダム要素を含めた完全にユニークなキーを生成
     session_suffix = ""
     if 'device_session_id' in st.session_state:
         session_suffix = f"_{st.session_state['device_session_id'][-6:]}"
     
-    key_suffix = f"_{store_name}{session_suffix}" if store_name else session_suffix
+    # ランダム要素とタイムスタンプを追加してさらに一意性を保証
+    random_suffix = f"_{random.randint(1000, 9999)}"
+    timestamp_suffix = f"_{int(time.time() * 1000) % 100000}"
+    
+    key_suffix = f"_{store_name}_{context}{session_suffix}{random_suffix}{timestamp_suffix}" if store_name else f"_{context}{session_suffix}{random_suffix}{timestamp_suffix}"
     button_key = f"refresh_sync_data{key_suffix}"
     
     if st.button("🔄 最新データを同期", key=button_key):
