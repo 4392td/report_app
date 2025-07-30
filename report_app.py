@@ -464,17 +464,29 @@ def save_draft_data(store_name: str, monday_date_str: str, daily_reports_data: D
         # 週の7日分を初期化（必要に応じて）
         if not store_daily_reports:
             date_obj = datetime.strptime(monday_date_str, '%Y-%m-%d').date()
+            store_daily_reports = {}
             for i in range(7):
                 current_date = date_obj + timedelta(days=i)
                 date_str = current_date.strftime('%Y-%m-%d')
-                if date_str not in store_daily_reports:
-                    store_daily_reports[date_str] = {"trend": "", "factors": []}
+                store_daily_reports[date_str] = {"trend": "", "factors": []}
+        
+        # データ構造の検証と修正（複数店舗データが混在している場合の対処）
+        clean_daily_reports = {}
+        for key, value in store_daily_reports.items():
+            # 日付形式のキーのみを保持（YYYY-MM-DD形式）
+            if isinstance(key, str) and len(key) == 10 and key.count('-') == 2:
+                try:
+                    datetime.strptime(key, '%Y-%m-%d')  # 日付形式を検証
+                    if isinstance(value, dict):
+                        clean_daily_reports[key] = value
+                except ValueError:
+                    pass  # 無効な日付形式は無視
         
         # 修正内容の自動保存も実行（新しい方法を使用）
         auto_save_modification()
         
         draft_data = {
-            'daily_reports': store_daily_reports,  # 店舗キーなしで直接日付データ
+            'daily_reports': clean_daily_reports,  # 清浄化されたデータのみ保存
             'topics': topics or (existing_report.get('topics', '') if existing_report else ''),
             'impact_day': impact_day or (existing_report.get('impact_day', '') if existing_report else ''),
             'quantitative_data': quantitative_data or (existing_report.get('quantitative_data', '') if existing_report else '')
@@ -2289,40 +2301,77 @@ def show_report_history_page():
                 st.markdown("**日次レポート:**")
                 daily_reports = full_report.get('daily_reports', {})
                 if daily_reports and isinstance(daily_reports, dict):
-                    for store_name, dates_data in daily_reports.items():
+                    # 単一店舗のレポートの場合（正しい構造）
+                    if all(key.count('-') == 2 and len(key) == 10 for key in daily_reports.keys() if isinstance(key, str)):
+                        store_name = db_manager.get_store_name_by_id(full_report.get('store_id', 0))
                         st.markdown(f"**{store_name}店**")
-                        if isinstance(dates_data, dict):
-                            has_data = False
-                            for date_str, report_data in dates_data.items():
-                                try:
-                                    if isinstance(report_data, dict):
-                                        trend_text = report_data.get('trend', '').strip()
-                                        factors_list = report_data.get('factors', [])
+                        has_data = False
+                        for date_str, report_data in daily_reports.items():
+                            try:
+                                if isinstance(report_data, dict):
+                                    trend_text = report_data.get('trend', '').strip()
+                                    factors_list = report_data.get('factors', [])
+                                    
+                                    # 動向または要因のいずれかにデータがある場合のみ表示
+                                    if trend_text or (factors_list and len(factors_list) > 0):
+                                        has_data = True
+                                        if isinstance(factors_list, list):
+                                            factors_text = ', '.join(factors_list) if factors_list else '要因なし'
+                                        else:
+                                            factors_text = str(factors_list) if factors_list else '要因なし'
                                         
-                                        # 動向または要因のいずれかにデータがある場合のみ表示
-                                        if trend_text or (factors_list and len(factors_list) > 0):
-                                            has_data = True
-                                            if isinstance(factors_list, list):
-                                                factors_text = ', '.join(factors_list) if factors_list else '要因なし'
+                                        st.markdown(f"  - **{date_str}**")
+                                        if trend_text:
+                                            st.markdown(f"    動向: {trend_text}")
+                                        if factors_list:
+                                            st.markdown(f"    要因: {factors_text}")
+                                        else:
+                                            st.markdown(f"    要因: 要因なし")
+                                else:
+                                    st.markdown(f"  - {date_str} データ形式エラー")
+                            except Exception as e:
+                                st.markdown(f"  - {date_str} データ読み込みエラー")
+                        
+                        if not has_data:
+                            st.markdown("  - この店舗には入力済みの日次データがありません")
+                    else:
+                        # 複数店舗データが混在している場合（古い構造）
+                        for store_key, dates_data in daily_reports.items():
+                            # 店舗名のキーのみ処理
+                            if not (isinstance(store_key, str) and len(store_key) == 10 and store_key.count('-') == 2):
+                                st.markdown(f"**{store_key}店**")
+                                if isinstance(dates_data, dict):
+                                    has_data = False
+                                    for date_str, report_data in dates_data.items():
+                                        try:
+                                            if isinstance(report_data, dict):
+                                                trend_text = report_data.get('trend', '').strip()
+                                                factors_list = report_data.get('factors', [])
+                                                
+                                                # 動向または要因のいずれかにデータがある場合のみ表示
+                                                if trend_text or (factors_list and len(factors_list) > 0):
+                                                    has_data = True
+                                                    if isinstance(factors_list, list):
+                                                        factors_text = ', '.join(factors_list) if factors_list else '要因なし'
+                                                    else:
+                                                        factors_text = str(factors_list) if factors_list else '要因なし'
+                                                    
+                                                    st.markdown(f"  - **{date_str}**")
+                                                    if trend_text:
+                                                        st.markdown(f"    動向: {trend_text}")
+                                                    if factors_list:
+                                                        st.markdown(f"    要因: {factors_text}")
+                                                    else:
+                                                        st.markdown(f"    要因: 要因なし")
                                             else:
-                                                factors_text = str(factors_list) if factors_list else '要因なし'
-                                            
-                                            st.markdown(f"  - **{date_str}**")
-                                            if trend_text:
-                                                st.markdown(f"    動向: {trend_text}")
-                                            if factors_list:
-                                                st.markdown(f"    要因: {factors_text}")
-                                            else:
-                                                st.markdown(f"    要因: 要因なし")
-                                    else:
-                                        st.markdown(f"  - {date_str} データ形式エラー")
-                                except Exception as e:
-                                    st.markdown(f"  - {date_str} データ読み込みエラー")
-                            
-                            if not has_data:
-                                st.markdown("  - この店舗には入力済みの日次データがありません")
-                        else:
-                            st.markdown("  - データ構造エラー")
+                                                st.markdown(f"  - {date_str} データ形式エラー")
+                                        except Exception as e:
+                                            st.markdown(f"  - {date_str} データ読み込みエラー")
+                                    
+                                    if not has_data:
+                                        st.markdown("  - この店舗には入力済みの日次データがありません")
+                                else:
+                                    st.markdown("  - データ構造エラー")
                 else:
                     st.markdown("日次レポートデータがありません。")
 
