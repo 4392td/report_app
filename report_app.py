@@ -567,7 +567,7 @@ def render_weekly_additional_info(store_name: str, monday_of_week: datetime):
     # 同期ボタン
     col1, col2 = st.columns([3, 1])
     with col2:
-        auto_refresh_data()
+        auto_refresh_data(store_name)
     
     # 他のデバイスからの更新通知
     if 'topics' in sync_updates:
@@ -738,7 +738,7 @@ def render_daily_report_input(store_name: str, monday_of_week: datetime):
     # 同期ボタン
     col1, col2 = st.columns([3, 1])
     with col2:
-        auto_refresh_data()
+        auto_refresh_data(store_name)
     
     # 選択された店舗の日次レポート入力欄のみを表示
     for j in range(7): # 月曜日から日曜日まで

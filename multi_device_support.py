@@ -208,7 +208,11 @@ def show_active_devices(store_name: str):
         else:
             st.success(f"✅ **{store_name}店 - 単独編集中**")
 
-def auto_refresh_data():
+def auto_refresh_data(store_name: str = None):
     """定期的にデータを更新"""
-    if st.button("🔄 最新データを同期", key="refresh_sync_data"):
+    # 店舗名を含めたユニークなキーを生成
+    key_suffix = f"_{store_name}" if store_name else ""
+    button_key = f"refresh_sync_data{key_suffix}"
+    
+    if st.button("🔄 最新データを同期", key=button_key):
         st.rerun()
