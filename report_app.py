@@ -458,8 +458,12 @@ def save_draft_data(store_name: str, monday_date_str: str, daily_reports_data: D
         existing_report = db_manager.get_weekly_report(store_id, monday_date_str)
         
         # 選択された店舗のデータのみを保存（店舗キーなしの構造）
-        # daily_reports_dataから該当店舗のデータを抽出
-        store_daily_reports = daily_reports_data.get(store_name, {})
+        # daily_reports_dataが既に正しい構造（日付をキーとする辞書）の場合はそのまま使用
+        if isinstance(daily_reports_data, dict) and all(isinstance(k, str) and len(k) == 10 for k in daily_reports_data.keys()):
+            store_daily_reports = daily_reports_data
+        else:
+            # daily_reports_dataから該当店舗のデータを抽出
+            store_daily_reports = daily_reports_data.get(store_name, {})
         
         # 週の7日分を初期化（必要に応じて）
         if not store_daily_reports:
@@ -805,7 +809,7 @@ def render_daily_report_input(store_name: str, monday_of_week: datetime):
             save_draft_data(
                 store_name,
                 current_monday,
-                {store_name: st.session_state['daily_reports_input'][store_name]},
+                st.session_state['daily_reports_input'][store_name],
                 get_weekly_additional_data(store_name, current_monday, 'topics') or '',
                 get_weekly_additional_data(store_name, current_monday, 'impact_day') or '',
                 get_weekly_additional_data(store_name, current_monday, 'quantitative_data') or ''
@@ -831,7 +835,7 @@ def render_daily_report_input(store_name: str, monday_of_week: datetime):
             save_draft_data(
                 store_name,
                 current_monday,
-                {store_name: st.session_state['daily_reports_input'][store_name]},
+                st.session_state['daily_reports_input'][store_name],
                 get_weekly_additional_data(store_name, current_monday, 'topics') or '',
                 get_weekly_additional_data(store_name, current_monday, 'impact_day') or '',
                 get_weekly_additional_data(store_name, current_monday, 'quantitative_data') or ''
@@ -1712,12 +1716,8 @@ def show_report_creation_page():
         if existing_report:
             # 新しいデータ構造（店舗キーなし）で直接日付データを設定
             if existing_report.get('daily_reports'):
-                # 既存のセッションデータがない場合、または空の場合のみ上書き
-                if (store_name not in st.session_state['daily_reports_input'] or 
-                    not any(data.get('trend') or data.get('factors') 
-                           for data in st.session_state['daily_reports_input'][store_name].values() 
-                           if isinstance(data, dict))):
-                    st.session_state['daily_reports_input'][store_name] = existing_report['daily_reports']
+                # 週選択時は常にデータベースから最新データを読み込む
+                st.session_state['daily_reports_input'][store_name] = existing_report['daily_reports']
             
             # 週全体の追加情報を店舗ごと・週ごとに保存
             set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'topics', existing_report.get('topics', ''))
