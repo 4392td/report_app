@@ -726,6 +726,45 @@ def render_daily_report_input(store_name: str, monday_of_week: datetime):
             get_weekly_additional_data(store_name, current_monday, 'impact_day') or '',
             get_weekly_additional_data(store_name, current_monday, 'quantitative_data') or ''
         )
+
+    # 選択された店舗の日次レポート入力欄のみを表示
+    for j in range(7): # 月曜日から日曜日まで
+        current_date = monday_of_week + timedelta(days=j)
+        date_str = current_date.strftime('%Y-%m-%d')
+        day_name = ["月", "火", "水", "木", "金", "土", "日"][j]
+
+        st.subheader(f"🗓️ {current_date.strftime('%Y年%m月%d日')} ({day_name})")
+        
+        # date_str辞書の初期化を確保
+        if date_str not in st.session_state['daily_reports_input'][store_name]:
+            st.session_state['daily_reports_input'][store_name][date_str] = {"trend": "", "factors": []}
+        
+        # 日次動向（保存済みデータを確実に表示）
+        current_trend_value = st.session_state['daily_reports_input'][store_name].get(date_str, {}).get('trend', '')
+        trend_value = st.text_area(
+            f"**{current_date.strftime('%m/%d')} 動向:**",
+            value=current_trend_value,
+            key=f"{store_name}_{date_str}_trend",
+            height=80
+        )
+        
+        # 値が変更された場合に自動保存
+        if trend_value != current_trend_value:
+            st.session_state['daily_reports_input'][store_name][date_str]['trend'] = trend_value
+            
+        # 日次要因（保存済みデータを確実に表示）
+        current_factors = st.session_state['daily_reports_input'][store_name].get(date_str, {}).get('factors', [])
+        factors_str = ", ".join(current_factors)
+        new_factors_str = st.text_input(
+            f"**{current_date.strftime('%m/%d')} 要因 (カンマ区切り):**",
+            value=factors_str,
+            key=f"{store_name}_{date_str}_factors"
+        )
+        
+        # 値が変更された場合に自動保存
+        new_factors_list = [f.strip() for f in new_factors_str.split(',') if f.strip()]
+        if new_factors_list != current_factors:
+            st.session_state['daily_reports_input'][store_name][date_str]['factors'] = new_factors_list
     
     # 日次データ入力完了後に自動保存（全ての日付の入力が完了してから実行）
     # デバウンス処理: 入力中の保存を避けるため、全日付ループ完了後に一度だけ保存
