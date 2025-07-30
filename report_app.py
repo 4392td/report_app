@@ -13,6 +13,13 @@ import pickle
 from pathlib import Path
 import hashlib # ハッシュ生成用にインポート
 from dotenv import load_dotenv # 追加
+from multi_device_support import (
+    init_multi_device_session, 
+    sync_field_update, 
+    get_sync_updates, 
+    show_active_devices,
+    auto_refresh_data
+)
 import os # 追加
 import pytz # 日本時間取得用に追加
 
@@ -527,13 +534,48 @@ def set_weekly_report_output(store_name, monday_date, field, value):
 
 
 def render_weekly_additional_info(store_name: str, monday_of_week: datetime):
-    """週次追加情報入力UIを描画する関数（店舗別）"""
+    """週次追加情報入力UIを描画する関数（店舗別）- マルチデバイス対応"""
     current_monday = monday_of_week.strftime('%Y-%m-%d')
+    
+    # マルチデバイスセッション初期化
+    session_id = init_multi_device_session(store_name)
+    
+    # アクティブなデバイス表示
+    show_active_devices(store_name)
+    
+    # 他のデバイスからの更新をチェック
+    sync_updates = get_sync_updates(store_name, current_monday)
     
     # 現在の値を新しいデータ構造から取得（後方互換性のため旧形式も確認）
     current_topics = get_weekly_additional_data(store_name, current_monday, 'topics') or st.session_state.get('topics_input', '')
     current_impact_day = get_weekly_additional_data(store_name, current_monday, 'impact_day') or st.session_state.get('impact_day_input', '')
     current_quantitative_data = get_weekly_additional_data(store_name, current_monday, 'quantitative_data') or st.session_state.get('quantitative_data_input', '')
+    
+    # 同期データがある場合、ローカルデータを更新
+    if 'topics' in sync_updates and 'topics' in sync_updates['topics']:
+        current_topics = sync_updates['topics']['topics']['value']
+        set_weekly_additional_data(store_name, current_monday, 'topics', current_topics)
+    
+    if 'impact_day' in sync_updates and 'impact_day' in sync_updates['impact_day']:
+        current_impact_day = sync_updates['impact_day']['impact_day']['value']
+        set_weekly_additional_data(store_name, current_monday, 'impact_day', current_impact_day)
+    
+    if 'quantitative_data' in sync_updates and 'quantitative_data' in sync_updates['quantitative_data']:
+        current_quantitative_data = sync_updates['quantitative_data']['quantitative_data']['value']
+        set_weekly_additional_data(store_name, current_monday, 'quantitative_data', current_quantitative_data)
+    
+    # 同期ボタン
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        auto_refresh_data()
+    
+    # 他のデバイスからの更新通知
+    if 'topics' in sync_updates:
+        st.info("🔄 TOPICSが他のデバイスで更新されました")
+    if 'impact_day' in sync_updates:
+        st.info("🔄 インパクトデーが他のデバイスで更新されました")
+    if 'quantitative_data' in sync_updates:
+        st.info("🔄 定量データが他のデバイスで更新されました")
     
     # TOPICS入力
     new_topics = st.text_area(
@@ -545,6 +587,8 @@ def render_weekly_additional_info(store_name: str, monday_of_week: datetime):
     if new_topics != current_topics:
         # 新しいデータ構造に保存
         set_weekly_additional_data(store_name, current_monday, 'topics', new_topics)
+        # マルチデバイス同期
+        sync_field_update(store_name, current_monday, 'topics', 'topics', new_topics)
         # 後方互換性のため、最初に選択された店舗の場合は旧形式も更新
         if store_name == st.session_state.get('selected_store_for_report'):
             st.session_state['topics_input'] = new_topics
@@ -569,6 +613,8 @@ def render_weekly_additional_info(store_name: str, monday_of_week: datetime):
     if new_impact_day != current_impact_day:
         # 新しいデータ構造に保存
         set_weekly_additional_data(store_name, current_monday, 'impact_day', new_impact_day)
+        # マルチデバイス同期
+        sync_field_update(store_name, current_monday, 'impact_day', 'impact_day', new_impact_day)
         # 後方互換性のため、最初に選択された店舗の場合は旧形式も更新
         if store_name == st.session_state.get('selected_store_for_report'):
             st.session_state['impact_day_input'] = new_impact_day
@@ -641,6 +687,8 @@ def render_weekly_additional_info(store_name: str, monday_of_week: datetime):
     if quantitative_data_changed or new_quantitative_data != current_quantitative_data:
         # 新しいデータ構造に保存
         set_weekly_additional_data(store_name, current_monday, 'quantitative_data', new_quantitative_data)
+        # マルチデバイス同期
+        sync_field_update(store_name, current_monday, 'quantitative_data', 'quantitative_data', new_quantitative_data)
         # 後方互換性のため、最初に選択された店舗の場合は旧形式も更新
         if store_name == st.session_state.get('selected_store_for_report'):
             st.session_state['quantitative_data_input'] = new_quantitative_data
@@ -657,13 +705,41 @@ def render_weekly_additional_info(store_name: str, monday_of_week: datetime):
 
 
 def render_daily_report_input(store_name: str, monday_of_week: datetime):
-    """日次レポート入力UIを描画する関数（店舗別）"""
+    """日次レポート入力UIを描画する関数（店舗別）- マルチデバイス対応"""
+    
+    # マルチデバイスセッション初期化
+    session_id = init_multi_device_session(store_name)
+    monday_str = monday_of_week.strftime('%Y-%m-%d')
+    
+    # アクティブなデバイス表示
+    show_active_devices(store_name)
+    
+    # 他のデバイスからの更新をチェック
+    sync_updates = get_sync_updates(store_name, monday_str)
+    
     # 選択された店舗のdaily_reports_inputを確実に初期化
     if store_name not in st.session_state['daily_reports_input']:
         st.session_state['daily_reports_input'][store_name] = {
             (monday_of_week + timedelta(days=i)).strftime('%Y-%m-%d'): {"trend": "", "factors": []} for i in range(7)
         }
 
+    # 同期データがある場合、ローカルデータを更新
+    if 'daily_trend' in sync_updates:
+        for date_key, update_data in sync_updates['daily_trend'].items():
+            if date_key in st.session_state['daily_reports_input'][store_name]:
+                st.session_state['daily_reports_input'][store_name][date_key]['trend'] = update_data['value']
+    
+    if 'daily_factors' in sync_updates:
+        for date_key, update_data in sync_updates['daily_factors'].items():
+            if date_key in st.session_state['daily_reports_input'][store_name]:
+                factors_list = json.loads(update_data['value']) if update_data['value'] else []
+                st.session_state['daily_reports_input'][store_name][date_key]['factors'] = factors_list
+
+    # 同期ボタン
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        auto_refresh_data()
+    
     # 選択された店舗の日次レポート入力欄のみを表示
     for j in range(7): # 月曜日から日曜日まで
         current_date = monday_of_week + timedelta(days=j)
@@ -671,6 +747,15 @@ def render_daily_report_input(store_name: str, monday_of_week: datetime):
         day_name = ["月", "火", "水", "木", "金", "土", "日"][j]
 
         st.subheader(f"🗓️ {current_date.strftime('%Y年%m月%d日')} ({day_name})")
+        
+        # 他のデバイスから最近更新された場合の表示
+        if 'daily_trend' in sync_updates and date_str in sync_updates['daily_trend']:
+            update_info = sync_updates['daily_trend'][date_str]
+            st.info(f"🔄 他のデバイスで更新: {update_info['updated'][:19]}")
+        
+        if 'daily_factors' in sync_updates and date_str in sync_updates['daily_factors']:
+            update_info = sync_updates['daily_factors'][date_str]
+            st.info(f"🔄 要因が他のデバイスで更新: {update_info['updated'][:19]}")
         
         # date_str辞書の初期化を確保
         if date_str not in st.session_state['daily_reports_input'][store_name]:
@@ -685,9 +770,11 @@ def render_daily_report_input(store_name: str, monday_of_week: datetime):
             height=80
         )
         
-        # 値が変更された場合に自動保存
+        # 値が変更された場合に自動保存とマルチデバイス同期
         if trend_value != current_trend_value:
             st.session_state['daily_reports_input'][store_name][date_str]['trend'] = trend_value
+            # 他のデバイスと同期
+            sync_field_update(store_name, monday_str, 'daily_trend', date_str, trend_value)
             
         # 日次要因（保存済みデータを確実に表示）
         current_factors = st.session_state['daily_reports_input'][store_name].get(date_str, {}).get('factors', [])
@@ -698,10 +785,12 @@ def render_daily_report_input(store_name: str, monday_of_week: datetime):
             key=f"{store_name}_{date_str}_factors"
         )
         
-        # 値が変更された場合に自動保存
+        # 値が変更された場合に自動保存とマルチデバイス同期
         new_factors_list = [f.strip() for f in new_factors_str.split(',') if f.strip()]
         if new_factors_list != current_factors:
             st.session_state['daily_reports_input'][store_name][date_str]['factors'] = new_factors_list
+            # 他のデバイスと同期
+            sync_field_update(store_name, monday_str, 'daily_factors', date_str, json.dumps(new_factors_list))
     
     # 日次データ入力完了後に自動保存（全ての日付の入力が完了してから実行）
     # デバウンス処理: 入力中の保存を避けるため、全日付ループ完了後に一度だけ保存
