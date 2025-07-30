@@ -800,6 +800,16 @@ def render_daily_report_input(store_name: str, monday_of_week: datetime):
             st.session_state['daily_reports_input'][store_name][date_str]['trend'] = trend_value
             # 他のデバイスと同期
             sync_field_update(store_name, monday_str, 'daily_trend', date_str, trend_value)
+            # 即座に保存
+            current_monday = monday_of_week.strftime('%Y-%m-%d')
+            save_draft_data(
+                store_name,
+                current_monday,
+                {store_name: st.session_state['daily_reports_input'][store_name]},
+                get_weekly_additional_data(store_name, current_monday, 'topics') or '',
+                get_weekly_additional_data(store_name, current_monday, 'impact_day') or '',
+                get_weekly_additional_data(store_name, current_monday, 'quantitative_data') or ''
+            )
             
         # 日次要因（保存済みデータを確実に表示）
         current_factors = st.session_state['daily_reports_input'][store_name].get(date_str, {}).get('factors', [])
@@ -816,6 +826,16 @@ def render_daily_report_input(store_name: str, monday_of_week: datetime):
             st.session_state['daily_reports_input'][store_name][date_str]['factors'] = new_factors_list
             # 他のデバイスと同期
             sync_field_update(store_name, monday_str, 'daily_factors', date_str, json.dumps(new_factors_list))
+            # 即座に保存
+            current_monday = monday_of_week.strftime('%Y-%m-%d')
+            save_draft_data(
+                store_name,
+                current_monday,
+                {store_name: st.session_state['daily_reports_input'][store_name]},
+                get_weekly_additional_data(store_name, current_monday, 'topics') or '',
+                get_weekly_additional_data(store_name, current_monday, 'impact_day') or '',
+                get_weekly_additional_data(store_name, current_monday, 'quantitative_data') or ''
+            )
     
     # 日次データ入力完了後に自動保存（全ての日付の入力が完了してから実行）
     # デバウンス処理: 入力中の保存を避けるため、全日付ループ完了後に一度だけ保存
@@ -1694,8 +1714,12 @@ def show_report_creation_page():
         if existing_report:
             # 新しいデータ構造（店舗キーなし）で直接日付データを設定
             if existing_report.get('daily_reports'):
-                # 常に最新のデータベースデータで上書き
-                st.session_state['daily_reports_input'][store_name] = existing_report['daily_reports']
+                # 既存のセッションデータがない場合、または空の場合のみ上書き
+                if (store_name not in st.session_state['daily_reports_input'] or 
+                    not any(data.get('trend') or data.get('factors') 
+                           for data in st.session_state['daily_reports_input'][store_name].values() 
+                           if isinstance(data, dict))):
+                    st.session_state['daily_reports_input'][store_name] = existing_report['daily_reports']
             
             # 週全体の追加情報を店舗ごと・週ごとに保存
             set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'topics', existing_report.get('topics', ''))
@@ -1764,17 +1788,19 @@ def show_report_creation_page():
         
         # 新しい週のデータを読み込み
         for store_name in store_names:
-            # 新しい週の空の構造で初期化
-            st.session_state['daily_reports_input'][store_name] = {
-                (monday_of_week + timedelta(days=i)).strftime('%Y-%m-%d'): {"trend": "", "factors": []} for i in range(7)
-            }
-            
-            # 新しい週の既存データを読み込み
+            # 既存データの読み込み（データベースから）
             store_id = db_manager.get_store_id_by_name(store_name)
             existing_report = db_manager.get_weekly_report(store_id, st.session_state['selected_monday'])
             
+            # データベースに既存データがある場合はそれを使用、ない場合のみ空構造で初期化
             if existing_report and existing_report.get('daily_reports'):
+                # 既存データをそのまま使用
                 st.session_state['daily_reports_input'][store_name] = existing_report['daily_reports']
+            else:
+                # データがない場合のみ空の構造で初期化
+                st.session_state['daily_reports_input'][store_name] = {
+                    (monday_of_week + timedelta(days=i)).strftime('%Y-%m-%d'): {"trend": "", "factors": []} for i in range(7)
+                }
             
             # 週全体の追加情報を店舗ごと・週ごとに保存
             if existing_report:
