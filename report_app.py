@@ -1952,29 +1952,52 @@ def show_report_creation_page():
                     
                     # レポート生成
                     if ai_report_key not in st.session_state:
-                        report_text = report_generator.generate_weekly_report(data_for_ai)
-                        if report_text and report_text.strip():
-                            st.session_state[ai_report_key] = report_text
+                        report_result = report_generator.generate_weekly_report(data_for_ai)
+                        if report_result and isinstance(report_result, dict) and report_result.get('trend'):
+                            # レポート結果を辞書として保存
+                            st.session_state[ai_report_key] = report_result
                             # 週次出力データとして保存
-                            set_weekly_report_output(selected_store_name, current_monday_str, 'generated_report', report_text)
+                            set_weekly_report_output(selected_store_name, current_monday_str, 'generated_report', report_result)
                         else:
                             st.error(f"❌ {selected_store_name}店のレポート生成に失敗しました。")
                             continue
                     
                     # レポート表示
                     if ai_report_key in st.session_state:
+                        report_data = st.session_state[ai_report_key]
+                        # 辞書形式のレポートデータから表示用テキストを生成
+                        if isinstance(report_data, dict):
+                            display_text = report_data.get('trend', 'レポートデータが正しく生成されませんでした。')
+                            factors = report_data.get('factors', [])
+                            questions = report_data.get('questions', [])
+                            
+                            # 表示用のフォーマット済みテキストを作成
+                            formatted_report = f"【週全体の動向】\n{display_text}\n\n"
+                            if factors:
+                                formatted_report += f"【主な要因】\n"
+                                for i, factor in enumerate(factors, 1):
+                                    formatted_report += f"{i}. {factor}\n"
+                                formatted_report += "\n"
+                            if questions:
+                                formatted_report += f"【AIからの質問】\n"
+                                for i, question in enumerate(questions, 1):
+                                    formatted_report += f"{i}. {question}\n"
+                        else:
+                            # 文字列形式の場合（後方互換性）
+                            formatted_report = str(report_data)
+                        
                         with st.container():
                             st.text_area(
                                 f"🤖 AI生成レポート ({selected_store_name}店)",
-                                value=st.session_state[ai_report_key],
+                                value=formatted_report,
                                 height=300,
                                 key=f"ai_report_display_{selected_store_name}_{current_monday_str}"
                             )
                             
                             # ダウンロードボタン
                             st.download_button(
-                                label=f"� {selected_store_name}店レポートをダウンロード",
-                                data=st.session_state[ai_report_key],
+                                label=f"📊 {selected_store_name}店レポートをダウンロード",
+                                data=formatted_report,
                                 file_name=f"weekly_report_{selected_store_name}_{current_monday_str}.txt",
                                 mime="text/plain",
                                 key=f"download_{selected_store_name}_{current_monday_str}"
