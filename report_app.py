@@ -1345,6 +1345,29 @@ class ApparelReportGenerator:
         parsed['questions'] = [q.strip() for q in json_data.get('questions', []) if q.strip()]
         
         return parsed
+
+    def generate_weekly_report(self, data_for_ai: Dict) -> Dict:
+        """週次レポートを生成するメインメソッド"""
+        try:
+            # analyze_trend_factorsメソッドを使用してレポートを生成
+            return self.analyze_trend_factors(
+                daily_reports=data_for_ai.get('daily_reports', {}),
+                topics=data_for_ai.get('topics', ''),
+                impact_day=data_for_ai.get('impact_day', ''),
+                quantitative_data=data_for_ai.get('quantitative_data', '')
+            )
+        except Exception as e:
+            st.error(f"週次レポート生成中にエラーが発生しました: {str(e)}")
+            return {
+                'trend': f'レポート生成エラー: {str(e)}',
+                'factors': ['システムエラーが発生しました'],
+                'questions': ['管理者に連絡してください'],
+                'consistency_check': {
+                    'is_consistent': True,
+                    'issues': [],
+                    'notes': ['エラーのため整合性チェックをスキップしました']
+                }
+            }
         
         return parsed
 
