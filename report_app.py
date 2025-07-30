@@ -449,7 +449,7 @@ class DBManager:
                 'patterns': 0
             }
 
-def save_draft_data(store_name: str, monday_date_str: str, daily_reports_data: Dict, topics: str = "", impact_day: str = "", quantitative_data: str = ""):
+def save_draft_data(store_name: str, monday_date_str: str, daily_reports_data: Dict, topics: str = "", impact_day: str = "", quantitative_data: str = "", generated_report: Dict = None):
     """入力途中のデータを自動保存する"""
     try:
         store_id = db_manager.get_store_id_by_name(store_name)
@@ -492,8 +492,8 @@ def save_draft_data(store_name: str, monday_date_str: str, daily_reports_data: D
             'quantitative_data': quantitative_data or (existing_report.get('quantitative_data', '') if existing_report else '')
         }
         
-        # 既存の生成レポートと修正レポートは保持
-        original_report = existing_report.get('generated_report', {}) if existing_report else {}
+        # 既存の生成レポートと修正レポートは保持、新しいレポートがあれば更新
+        original_report = generated_report if generated_report else (existing_report.get('generated_report', {}) if existing_report else {})
         modified_report = existing_report.get('modified_report') if existing_report else None
         
         # データを保存
@@ -1827,6 +1827,16 @@ def show_report_creation_page():
     st.session_state['selected_stores_for_editing'] = selected_stores_for_editing
     st.session_state['selected_store_for_report'] = selected_store_for_editing
     
+    # 店舗選択が変更された場合、その店舗のレポートデータを即座に読み込み
+    if st.session_state.get('last_selected_store') != selected_store_for_editing:
+        current_monday = st.session_state.get('selected_monday')
+        if current_monday:
+            # 選択された店舗のレポートデータを読み込み
+            st.session_state['generated_report_output'] = get_weekly_report_output(selected_store_for_editing, current_monday, 'generated_report')
+            st.session_state['modified_report_output'] = get_weekly_report_output(selected_store_for_editing, current_monday, 'modified_report')
+            st.session_state['report_id_to_edit'] = get_weekly_report_output(selected_store_for_editing, current_monday, 'report_id')
+        st.session_state['last_selected_store'] = selected_store_for_editing
+    
     # 選択された店舗の表示
     st.info(f"📊 **編集中の店舗:** {selected_store_for_editing}店 - マルチデバイス同時編集対応")
     
@@ -1957,6 +1967,10 @@ def show_report_creation_page():
                         # 週次出力データとして保存
                         set_weekly_report_output(selected_store_name, current_monday_str, 'generated_report', report_result)
                         
+                        # 現在選択中の店舗の場合は、従来の表示用変数も更新
+                        if selected_store_name == st.session_state.get('selected_store_for_report'):
+                            st.session_state['generated_report_output'] = report_result
+                        
                         # データベースにも最新のレポートを保存
                         store_id = db_manager.get_store_id_by_name(selected_store_name)
                         save_draft_data(
@@ -1965,7 +1979,8 @@ def show_report_creation_page():
                             {selected_store_name: st.session_state['daily_reports_input'][selected_store_name]},
                             topics_data,
                             impact_day_data,
-                            quantitative_data_data
+                            quantitative_data_data,
+                            report_result  # 生成されたレポートも保存
                         )
                     else:
                         st.error(f"❌ {selected_store_name}店のレポート生成に失敗しました。")
@@ -2026,13 +2041,25 @@ def show_report_creation_page():
     
     st.markdown("---")
     
-    # 生成されたレポートの表示部分（既存機能との互換性のため）
-    if st.session_state.get('generated_report_output'):
-        st.subheader("生成された週次レポート (AI生成)")
+    # 生成されたレポートの表示部分（現在選択中の店舗のレポートを表示）
+    current_store_for_display = st.session_state.get('selected_store_for_report')
+    current_monday_for_display = st.session_state.get('selected_monday')
+    
+    # 現在の店舗・週のレポートを優先して取得
+    display_report = None
+    if current_store_for_display and current_monday_for_display:
+        display_report = get_weekly_report_output(current_store_for_display, current_monday_for_display, 'generated_report')
+    
+    # フォールバック: 従来のsession_stateからも取得
+    if not display_report:
+        display_report = st.session_state.get('generated_report_output')
+    
+    if display_report and isinstance(display_report, dict) and display_report.get('trend'):
+        st.subheader(f"生成された週次レポート ({current_store_for_display}店 - AI生成)")
         
         # 整合性チェック結果を表示
-        if 'consistency_check' in st.session_state['generated_report_output']:
-            consistency_check = st.session_state['generated_report_output']['consistency_check']
+        if 'consistency_check' in display_report:
+            consistency_check = display_report['consistency_check']
             
             if not consistency_check['is_consistent'] or consistency_check['notes']:
                 with st.expander("📊 定量データ整合性チェック結果", expanded=True):
@@ -2049,30 +2076,40 @@ def show_report_creation_page():
                     st.markdown("---")
         
         st.markdown("**週全体の動向と要因:**")
+        st.write(display_report.get('trend', ''))
+        st.markdown("**主な要因:**")
+        for i, factor in enumerate(display_report.get('factors', [])):
+            st.write(f"- {factor}")
         
-        # 安全なアクセスに修正
-        report_output = st.session_state['generated_report_output']
-        if isinstance(report_output, dict):
-            st.write(report_output.get('trend', ''))
-            st.markdown("**主な要因:**")
-            for i, factor in enumerate(report_output.get('factors', [])):
-                st.write(f"- {factor}")
-            
-            if report_output.get('questions'):
-                st.markdown("**AIからの質問:**")
-                for q in report_output.get('questions', []):
-                    st.write(f"- {q}")
-        else:
-            st.write("レポートの形式が正しくありません。再度生成してください。")
+        if display_report.get('questions'):
+            st.markdown("**AIからの質問:**")
+            for q in display_report.get('questions', []):
+                st.write(f"- {q}")
+        
+        # 従来の互換性のため、session_stateも更新
+        st.session_state['generated_report_output'] = display_report
 
     st.markdown("---")
 
     # レポート修正エリア (生成済みレポートがある場合のみ表示)
-    if st.session_state['generated_report_output'] or st.session_state['modified_report_output']:
+    # 現在の店舗・週のレポートを確認
+    current_store_report = None
+    current_modified_report = None
+    if current_store_for_display and current_monday_for_display:
+        current_store_report = get_weekly_report_output(current_store_for_display, current_monday_for_display, 'generated_report')
+        current_modified_report = get_weekly_report_output(current_store_for_display, current_monday_for_display, 'modified_report')
+    
+    # フォールバック
+    if not current_store_report:
+        current_store_report = st.session_state.get('generated_report_output')
+    if not current_modified_report:
+        current_modified_report = st.session_state.get('modified_report_output')
+    
+    if current_store_report or current_modified_report:
         st.header("5. レポートの修正と学習 (任意)")
         st.info("AIが生成したレポートを修正し、「修正して学習」ボタンを押すと、システムがその修正から学び、将来のレポート精度向上に役立てます。")
 
-        report_to_display = st.session_state['modified_report_output'] if st.session_state['modified_report_output'] else st.session_state['generated_report_output']
+        report_to_display = current_modified_report if current_modified_report else current_store_report
 
         # 保存された修正内容がある場合はそれを使用、なければ元のレポート内容を使用
         default_trend = get_saved_modification('trend') or report_to_display.get('trend', '')
