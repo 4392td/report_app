@@ -1592,8 +1592,6 @@ def show_report_creation_page():
     st.title("📈 週次レポート作成")
     st.markdown("---")
 
-    st.info("このページでは、店舗ごとの日次データを入力し、AIが週次レポートを生成します。AIレポートは後で修正し、システムに学習させることができます。")
-
     # 週の選択
     st.header("1. レポート対象週の選択")
     # 今週の月曜日をデフォルト値にする
@@ -1762,9 +1760,6 @@ def show_report_creation_page():
             if has_data:
                 loaded_stores.append(store_name)
     
-    if loaded_stores:
-        st.info(f"📁 保存済みデータを読み込みました: {', '.join(loaded_stores)}店")
-    
     # 日付が変更された場合の処理（修正版）
     if 'last_selected_monday' not in st.session_state or st.session_state['last_selected_monday'] != st.session_state['selected_monday']:
         # 日付変更時は、現在の入力内容を自動保存してから新しい週のデータを読み込む
@@ -1835,10 +1830,6 @@ def show_report_creation_page():
     st.header("2. 日次レポートデータの入力")
     st.markdown("各店舗の**日ごとの動向と要因**を入力してください。要因は複数入力可能です（カンマ区切り）。")
     
-    # 単一店舗編集モード（マルチデバイス対応）
-    st.markdown("### 🏪 **店舗編集モード（マルチデバイス対応）**")
-    st.markdown("選択した店舗を複数のデバイス（PC、iPhone、iPad等）から同時に編集できます。")
-    
     # 編集対象店舗の選択（単一店舗）
     selected_store_for_editing = st.selectbox(
         "**編集する店舗を選択してください:**",
@@ -1863,11 +1854,8 @@ def show_report_creation_page():
             st.session_state['report_id_to_edit'] = get_weekly_report_output(selected_store_for_editing, current_monday, 'report_id')
         st.session_state['last_selected_store'] = selected_store_for_editing
     
-    # 選択された店舗の表示
-    st.info(f"📊 **編集中の店舗:** {selected_store_for_editing}店 - マルチデバイス同時編集対応")
-    
     # 選択された店舗のデータ入力エリア
-    st.markdown(f"### 📝 **{selected_store_for_editing}店のデータ入力**")
+    st.markdown(f"### {selected_store_for_editing}店")
     current_store = selected_store_for_editing
     
     # 自動保存状況を表示
