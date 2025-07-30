@@ -200,8 +200,8 @@ def show_active_devices(store_name: str):
         
         if len(sessions) > 1:
             st.info(f"🔄 **{store_name}店で{len(sessions)}台のデバイスが編集中**")
-            with st.expander("アクティブなデバイス"):
-                for session in sessions:
+            with st.expander("アクティブなデバイス", key=f"devices_{store_name}"):
+                for i, session in enumerate(sessions):
                     device_short = session['session_id'][-8:]
                     last_active = session['last_active']
                     st.write(f"📱 デバイス {device_short} - 最終更新: {last_active}")
@@ -210,8 +210,12 @@ def show_active_devices(store_name: str):
 
 def auto_refresh_data(store_name: str = None):
     """定期的にデータを更新"""
-    # 店舗名を含めたユニークなキーを生成
-    key_suffix = f"_{store_name}" if store_name else ""
+    # 店舗名とセッションIDを含めたユニークなキーを生成
+    session_suffix = ""
+    if 'device_session_id' in st.session_state:
+        session_suffix = f"_{st.session_state['device_session_id'][-6:]}"
+    
+    key_suffix = f"_{store_name}{session_suffix}" if store_name else session_suffix
     button_key = f"refresh_sync_data{key_suffix}"
     
     if st.button("🔄 最新データを同期", key=button_key):

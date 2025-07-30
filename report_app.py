@@ -1751,44 +1751,30 @@ def show_report_creation_page():
     st.header("2. 日次レポートデータの入力")
     st.markdown("各店舗の**日ごとの動向と要因**を入力してください。要因は複数入力可能です（カンマ区切り）。")
     
-    # 複数店舗同時編集 - タブインターフェース
-    st.markdown("### 🏪 **複数店舗編集モード**")
-    st.markdown("各店舗のタブで独立してデータを入力・編集できます。最大4店舗の同時編集が可能です。")
+    # 単一店舗編集モード（マルチデバイス対応）
+    st.markdown("### 🏪 **店舗編集モード（マルチデバイス対応）**")
+    st.markdown("選択した店舗を複数のデバイス（PC、iPhone、iPad等）から同時に編集できます。")
     
-    # 常に複数店舗編集モードを有効にする
-    st.session_state['multi_store_mode'] = True
-    
-    # 編集対象店舗の選択
-    selected_stores_for_editing = st.multiselect(
-        "**編集する店舗を選択してください (最大4店舗):**",
+    # 編集対象店舗の選択（単一店舗）
+    selected_store_for_editing = st.selectbox(
+        "**編集する店舗を選択してください:**",
         store_names,
-        default=st.session_state.get('selected_stores_for_editing', store_names[:1]),  # デフォルトで最初の1店舗
-        max_selections=4
+        index=store_names.index(st.session_state.get('selected_stores_for_editing', [store_names[0]])[0]) 
+              if st.session_state.get('selected_stores_for_editing') else 0
     )
     
-    if not selected_stores_for_editing:
-        st.warning("⚠️ 少なくとも1つの店舗を選択してください。")
-        return
+    # 単一店舗をリスト形式で格納（既存コードとの互換性）
+    selected_stores_for_editing = [selected_store_for_editing]
     
     st.session_state['selected_stores_for_editing'] = selected_stores_for_editing
+    st.session_state['selected_store_for_report'] = selected_store_for_editing
     
-    # 後方互換性のため、最初に選択された店舗を selected_store_for_report に設定
-    if selected_stores_for_editing:
-        st.session_state['selected_store_for_report'] = selected_stores_for_editing[0]
+    # 選択された店舗の表示
+    st.info(f"📊 **編集中の店舗:** {selected_store_for_editing}店 - マルチデバイス同時編集対応")
     
-    # 選択された店舗数の表示
-    st.info(f"📊 **選択中の店舗数:** {len(selected_stores_for_editing)}店舗 - {', '.join(selected_stores_for_editing)}")
-    
-    # 店舗ごとのタブを作成
-    store_tabs = st.tabs([f"{store}店" for store in selected_stores_for_editing])
-    
-    # 各店舗タブでの処理
-    for tab_index, (store_tab, store_name) in enumerate(zip(store_tabs, selected_stores_for_editing)):
-        with store_tab:
-            st.markdown(f"### 📝 **{store_name}店のデータ入力**")
-            
-            # この店舗を現在のアクティブ店舗として設定
-            current_store = store_name
+    # 選択された店舗のデータ入力エリア
+    st.markdown(f"### 📝 **{selected_store_for_editing}店のデータ入力**")
+    current_store = selected_store_for_editing
     
     # 自動保存状況を表示
     if 'last_auto_save' not in st.session_state:
@@ -1819,32 +1805,20 @@ def show_report_creation_page():
     
     st.markdown("---")
 
-    # 日次レポート入力 - 常に複数店舗モードのタブ処理
-    if st.session_state.get('selected_stores_for_editing'):
-        # 複数店舗編集モード - タブ形式
-        daily_tabs = st.tabs([f"🏪 {store}" for store in st.session_state['selected_stores_for_editing']])
-        
-        for i, store in enumerate(st.session_state['selected_stores_for_editing']):
-            with daily_tabs[i]:
-                render_daily_report_input(store, monday_of_week)
+    # 日次レポート入力 - 単一店舗モード
+    if selected_store_for_editing:
+        render_daily_report_input(selected_store_for_editing, monday_of_week)
     else:
-        # 店舗が選択されていない場合のフォールバック
         st.warning("⚠️ 編集する店舗を選択してください。")
     
     st.markdown("---")
 
     st.header("3. 週全体の追加情報 (任意)")
     
-    # 週次追加情報入力 - 常に複数店舗モードのタブ処理
-    if st.session_state.get('selected_stores_for_editing'):
-        # 複数店舗編集モード - タブ形式
-        weekly_tabs = st.tabs([f"🏪 {store}" for store in st.session_state['selected_stores_for_editing']])
-        
-        for i, store in enumerate(st.session_state['selected_stores_for_editing']):
-            with weekly_tabs[i]:
-                render_weekly_additional_info(store, monday_of_week)
+    # 週次追加情報入力 - 単一店舗モード
+    if selected_store_for_editing:
+        render_weekly_additional_info(selected_store_for_editing, monday_of_week)
     else:
-        # 店舗が選択されていない場合のフォールバック
         st.warning("⚠️ 編集する店舗を選択してください。")
     
     st.markdown("---")
@@ -1852,21 +1826,10 @@ def show_report_creation_page():
     # レポート出力ボタン
     st.header("4. レポート出力")
     
-    # レポート出力対象店舗を選択
-    if st.session_state.get('selected_stores_for_editing'):
-        st.subheader("🎯 出力対象店舗を選択")
-        output_stores = st.multiselect(
-            "レポートを出力する店舗を選択してください（複数選択可能）",
-            options=st.session_state['selected_stores_for_editing'],
-            default=st.session_state['selected_stores_for_editing'],
-            key="output_target_stores"
-        )
-        
-        if not output_stores:
-            st.warning("⚠️ 出力対象の店舗を選択してください。")
-            return
-        
-        st.info(f"📋 選択された店舗: {', '.join(output_stores)}")
+    # 選択された店舗のレポート出力
+    if selected_store_for_editing:
+        output_stores = [selected_store_for_editing]
+        st.info(f"📋 出力対象店舗: {selected_store_for_editing}")
     else:
         # 店舗が選択されていない場合のフォールバック
         st.warning("⚠️ まず編集する店舗を選択してください。")
