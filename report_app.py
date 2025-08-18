@@ -181,7 +181,10 @@ st.set_page_config(
 )
 
 # --- データベース設定とヘルパー関数 ---
-DB_PATH = 'apparel_reports.db' # データベースファイル名変更
+import os
+# データベースファイルの絶対パスを取得（他のデバイスからのアクセス対応）
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(SCRIPT_DIR, 'apparel_reports.db')
 
 class DBManager:
     """データベース接続と操作を管理するクラス"""
@@ -191,9 +194,19 @@ class DBManager:
 
     def _get_connection(self):
         """データベース接続を確立し、Rowファクトリを設定します。"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row # カラム名でアクセスできるようにする
-        return conn
+        try:
+            # データベースファイルの存在確認
+            if not os.path.exists(self.db_path):
+                print(f"Database file not found: {self.db_path}")
+                # データベースファイルが存在しない場合は作成する
+                self._init_db()
+            
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row # カラム名でアクセスできるようにする
+            return conn
+        except Exception as e:
+            print(f"Database connection error: {str(e)}")
+            raise e
 
     def _init_db(self):
         """データベースとテーブルを初期化します。指定された店舗名のみを登録します。"""
@@ -357,31 +370,38 @@ class DBManager:
     
     def get_all_weekly_reports(self, store_id: int = None) -> List[Dict]:
         """全ての週次レポート、または指定した店舗の週次レポートを取得します。"""
-        conn = self._get_connection()
-        if store_id:
-            reports_rows = conn.execute(
-                'SELECT id, store_id, monday_date, timestamp, generated_report_json, modified_report_json '
-                'FROM weekly_reports WHERE store_id = ? ORDER BY monday_date DESC', (store_id,)
-            ).fetchall()
-        else:
-            reports_rows = conn.execute(
-                'SELECT id, store_id, monday_date, timestamp, generated_report_json, modified_report_json '
-                'FROM weekly_reports ORDER BY monday_date DESC'
-            ).fetchall()
-        conn.close()
+        try:
+            conn = self._get_connection()
+            if store_id:
+                reports_rows = conn.execute(
+                    'SELECT id, store_id, monday_date, timestamp, generated_report_json, modified_report_json '
+                    'FROM weekly_reports WHERE store_id = ? ORDER BY monday_date DESC', (store_id,)
+                ).fetchall()
+            else:
+                reports_rows = conn.execute(
+                    'SELECT id, store_id, monday_date, timestamp, generated_report_json, modified_report_json '
+                    'FROM weekly_reports ORDER BY monday_date DESC'
+                ).fetchall()
+            conn.close()
 
-        reports = []
-        for row in reports_rows:
-            report_data = dict(row)
-            report_data['store_name'] = self.get_store_name_by_id(report_data['store_id'])
-            
-            # 生成レポートと修正レポートの有無をフラグとして追加
-            report_data['has_generated'] = report_data['generated_report_json'] is not None
-            report_data['has_modified'] = report_data['modified_report_json'] is not None
+            reports = []
+            for row in reports_rows:
+                report_data = dict(row)
+                try:
+                    report_data['store_name'] = self.get_store_name_by_id(report_data['store_id'])
+                except Exception as e:
+                    report_data['store_name'] = f"店舗ID:{report_data['store_id']}"
+                
+                # 生成レポートと修正レポートの有無をフラグとして追加
+                report_data['has_generated'] = report_data['generated_report_json'] is not None
+                report_data['has_modified'] = report_data['modified_report_json'] is not None
 
-            # JSON文字列は生データとして保持し、必要に応じてパースする
-            reports.append(report_data)
-        return reports
+                # JSON文字列は生データとして保持し、必要に応じてパースする
+                reports.append(report_data)
+            return reports
+        except Exception as e:
+            print(f"Database error in get_all_weekly_reports: {str(e)}")
+            return []
 
     def find_similar_cases(self, current_data: Dict) -> str:
         """類似ケースを検索し、LLMに渡すためのコンテキストを生成します。"""
@@ -2327,6 +2347,28 @@ def show_report_history_page():
 
     st.info("ここでは、これまでに作成・保存された週次レポートの一覧を確認できます。")
 
+    # デバッグ情報の追加
+    with st.expander("🔧 デバッグ情報", expanded=False):
+        try:
+            # データベースファイルの存在確認
+            import os
+            db_path = "apparel_reports.db"
+            st.write(f"データベースファイル存在: {os.path.exists(db_path)}")
+            if os.path.exists(db_path):
+                st.write(f"データベースファイルサイズ: {os.path.getsize(db_path)} bytes")
+            
+            # 店舗情報の確認
+            all_stores_debug = db_manager.get_all_stores()
+            st.write(f"登録店舗数: {len(all_stores_debug)}")
+            st.write(f"店舗リスト: {all_stores_debug}")
+            
+            # レポート総数の確認
+            all_reports_debug = db_manager.get_all_weekly_reports()
+            st.write(f"総レポート数: {len(all_reports_debug)}")
+            
+        except Exception as e:
+            st.error(f"デバッグ情報取得エラー: {str(e)}")
+
     all_stores = db_manager.get_all_stores()
     store_names = [s[1] for s in all_stores]
     store_id_map = {s[1]: s[0] for s in all_stores}
@@ -2341,6 +2383,11 @@ def show_report_history_page():
 
     if not reports:
         st.warning("表示するレポートがありません。")
+        # デバッグ情報をより詳細に表示
+        st.info("💡 トラブルシューティング:")
+        st.write("- データベースに週次レポートが保存されていない可能性があります")
+        st.write("- 「週次レポート作成」ページで一度レポートを生成・保存してください")
+        st.write("- 他のデバイスからアクセスしている場合、データベースファイルが同期されていない可能性があります")
         return
 
     report_data = []
