@@ -610,11 +610,12 @@ def render_weekly_additional_info(store_name: str, monday_of_week: datetime):
         st.info("🔄 定量データが他のデバイスで更新されました")
     
     # TOPICS入力
+    topics_input_key = f"topics_input_field_{store_name}_{current_monday}"
     new_topics = st.text_area(
         f"**TOPICS ({store_name}店用):** 週全体を通して特筆すべき事項や出来事を入力してください。",
         value=current_topics,
         height=100,
-        key=f"topics_input_field_{store_name}"
+        key=topics_input_key
     )
     if new_topics != current_topics:
         # 新しいデータ構造に保存
@@ -633,13 +634,17 @@ def render_weekly_additional_info(store_name: str, monday_of_week: datetime):
             get_weekly_additional_data(store_name, current_monday, 'impact_day') or st.session_state.get('impact_day_input', ''),
             get_weekly_additional_data(store_name, current_monday, 'quantitative_data') or st.session_state.get('quantitative_data_input', '')
         )
+    else:
+        # 入力フィールドの値でセッション状態を更新（データ整合性を保つ）
+        set_weekly_additional_data(store_name, current_monday, 'topics', new_topics)
     
     # インパクト大入力
+    impact_day_input_key = f"impact_day_input_field_{store_name}_{current_monday}"
     new_impact_day = st.text_area(
         f"**インパクト大 ({store_name}店用):** 特に影響の大きかった日やイベント、その内容を記述してください。",
         value=current_impact_day,
         height=100,
-        key=f"impact_day_input_field_{store_name}"
+        key=impact_day_input_key
     )
     if new_impact_day != current_impact_day:
         # 新しいデータ構造に保存
@@ -658,6 +663,9 @@ def render_weekly_additional_info(store_name: str, monday_of_week: datetime):
             new_impact_day,
             get_weekly_additional_data(store_name, current_monday, 'quantitative_data') or st.session_state.get('quantitative_data_input', '')
         )
+    else:
+        # 入力フィールドの値でセッション状態を更新（データ整合性を保つ）
+        set_weekly_additional_data(store_name, current_monday, 'impact_day', new_impact_day)
     
     # 定量データ入力（事前定義項目）
     st.markdown(f"**定量データ ({store_name}店用):** 各項目に数値（％）を入力してください。")
@@ -731,6 +739,9 @@ def render_weekly_additional_info(store_name: str, monday_of_week: datetime):
             get_weekly_additional_data(store_name, current_monday, 'impact_day') or '',
             new_quantitative_data
         )
+    else:
+        # 入力フィールドの値でセッション状態を更新（データ整合性を保つ）
+        set_weekly_additional_data(store_name, current_monday, 'quantitative_data', new_quantitative_data)
 
 
 def render_daily_report_input(store_name: str, monday_of_week: datetime):
@@ -792,10 +803,13 @@ def render_daily_report_input(store_name: str, monday_of_week: datetime):
         
         # 日次動向（保存済みデータを確実に表示）
         current_trend_value = st.session_state['daily_reports_input'][store_name].get(date_str, {}).get('trend', '')
+        
+        # 入力フィールドのkeyを一意にして、値の保持を強化
+        trend_input_key = f"{store_name}_{date_str}_trend_{st.session_state['selected_monday']}"
         trend_value = st.text_area(
             f"**{current_date.strftime('%m/%d')} 動向:**",
             value=current_trend_value,
-            key=f"{store_name}_{date_str}_trend",
+            key=trend_input_key,
             height=80
         )
         
@@ -814,14 +828,22 @@ def render_daily_report_input(store_name: str, monday_of_week: datetime):
                 get_weekly_additional_data(store_name, current_monday, 'impact_day') or '',
                 get_weekly_additional_data(store_name, current_monday, 'quantitative_data') or ''
             )
+        
+        # セッション状態の値を確実に同期（入力フィールドとセッション状態の不整合を防ぐ）
+        else:
+            # 入力フィールドの値でセッション状態を更新（データ整合性を保つ）
+            st.session_state['daily_reports_input'][store_name][date_str]['trend'] = trend_value
             
         # 日次要因（保存済みデータを確実に表示）
         current_factors = st.session_state['daily_reports_input'][store_name].get(date_str, {}).get('factors', [])
         factors_str = ", ".join(current_factors)
+        
+        # 入力フィールドのkeyを一意にして、値の保持を強化
+        factors_input_key = f"{store_name}_{date_str}_factors_{st.session_state['selected_monday']}"
         new_factors_str = st.text_input(
             f"**{current_date.strftime('%m/%d')} 要因 (カンマ区切り):**",
             value=factors_str,
-            key=f"{store_name}_{date_str}_factors"
+            key=factors_input_key
         )
         
         # 値が変更された場合に自動保存とマルチデバイス同期
@@ -840,6 +862,11 @@ def render_daily_report_input(store_name: str, monday_of_week: datetime):
                 get_weekly_additional_data(store_name, current_monday, 'impact_day') or '',
                 get_weekly_additional_data(store_name, current_monday, 'quantitative_data') or ''
             )
+        
+        # セッション状態の値を確実に同期（入力フィールドとセッション状態の不整合を防ぐ）
+        else:
+            # 入力フィールドの値でセッション状態を更新（データ整合性を保つ）
+            st.session_state['daily_reports_input'][store_name][date_str]['factors'] = new_factors_list
     
     # 日次データ入力完了後に自動保存（全ての日付の入力が完了してから実行）
     # デバウンス処理: 入力中の保存を避けるため、全日付ループ完了後に一度だけ保存
@@ -1617,8 +1644,46 @@ def show_report_creation_page():
     
     st.session_state['selected_monday'] = monday_of_week.strftime('%Y-%m-%d')
     
-    # 日付が変更された場合の処理
+    # 店舗名リストを事前に取得（エラー回避のため）
+    store_names = [s[1] for s in db_manager.get_all_stores()]
+    
+    # 日付が変更された場合の処理（改善版：データ保持を優先）
     if 'last_selected_monday' not in st.session_state or st.session_state['last_selected_monday'] != st.session_state['selected_monday']:
+        # 前の週のデータを自動保存してから新しい週に移る
+        if 'last_selected_monday' in st.session_state and st.session_state['last_selected_monday'] and st.session_state.get('preserve_input_data', True):
+            old_monday = st.session_state['last_selected_monday']
+            # 各店舗の現在の入力データを保存
+            for store_name in store_names:
+                if st.session_state.get('daily_reports_input', {}).get(store_name):
+                    # データが空でない場合のみ保存
+                    has_data = any(
+                        data.get('trend') or data.get('factors') 
+                        for data in st.session_state['daily_reports_input'][store_name].values()
+                        if isinstance(data, dict)
+                    )
+                    if has_data:
+                        try:
+                            save_draft_data(
+                                store_name,
+                                old_monday,
+                                {store_name: st.session_state['daily_reports_input'][store_name]},
+                                get_weekly_additional_data(store_name, old_monday, 'topics') or '',
+                                get_weekly_additional_data(store_name, old_monday, 'impact_day') or '',
+                                get_weekly_additional_data(store_name, old_monday, 'quantitative_data') or ''
+                            )
+                        except Exception as e:
+                            # 保存エラーは無視して継続
+                            pass
+        
+        # データ復元フラグをリセット（新しい週のデータを読み込むため）
+        if 'data_restored_for_week' not in st.session_state:
+            st.session_state['data_restored_for_week'] = {}
+        
+        # 新しい週の復元フラグをクリア
+        new_restore_key = f"restored_{st.session_state['selected_monday']}"
+        if new_restore_key in st.session_state['data_restored_for_week']:
+            del st.session_state['data_restored_for_week'][new_restore_key]
+        
         # 日付変更時は既存データ読み込みフラグをリセット
         st.session_state['topics_loaded_for_week'] = False
         # 自動保存時刻もリセット
@@ -1628,7 +1693,6 @@ def show_report_creation_page():
     st.markdown("---")
 
     # 既存レポートのロード
-    store_names = [s[1] for s in db_manager.get_all_stores()]
     if 'selected_store_for_report' not in st.session_state:
         st.session_state['selected_store_for_report'] = store_names[0] # デフォルトで最初の店舗
 
@@ -1653,6 +1717,14 @@ def show_report_creation_page():
     # 複数店舗用の自動保存タイムスタンプ管理
     if 'multi_store_auto_save' not in st.session_state:
         st.session_state['multi_store_auto_save'] = {}
+    
+    # データベースからの自動復元フラグ
+    if 'data_restored_for_week' not in st.session_state:
+        st.session_state['data_restored_for_week'] = {}
+    
+    # 入力データ保護フラグ（レポート生成後もデータを保持）
+    if 'preserve_input_data' not in st.session_state:
+        st.session_state['preserve_input_data'] = True
     
     # 後方互換性のため、旧形式のデータがあれば移行
     if 'topics_input' not in st.session_state:
@@ -1698,54 +1770,73 @@ def show_report_creation_page():
             st.session_state['weekly_report_outputs'][key] = {}
         st.session_state['weekly_report_outputs'][key][field] = value
 
-    # 選択された週の既存レポートをロード
+    # 週が変更された場合のデータ復元処理を改善
+    current_week_key = st.session_state['selected_monday']
+    restore_key = f"restored_{current_week_key}"
+    
+    # 週が変更された場合、または初回ロード時にデータベースからデータを復元
+    if restore_key not in st.session_state.get('data_restored_for_week', {}):
+        # 各店舗の既存レポートを個別に読み込み（統一された方法）
+        for store_name in store_names:
+            store_id = db_manager.get_store_id_by_name(store_name)
+            existing_report = db_manager.get_weekly_report(store_id, st.session_state['selected_monday'])
+            
+            if existing_report:
+                # 新しいデータ構造（店舗キーなし）で直接日付データを設定
+                if existing_report.get('daily_reports'):
+                    # 既存のセッション状態を上書きしないように注意深く復元
+                    if store_name not in st.session_state['daily_reports_input']:
+                        st.session_state['daily_reports_input'][store_name] = {}
+                    
+                    # データベースのデータでセッション状態を復元
+                    for date_key, report_data in existing_report['daily_reports'].items():
+                        if isinstance(report_data, dict):
+                            st.session_state['daily_reports_input'][store_name][date_key] = {
+                                'trend': report_data.get('trend', ''),
+                                'factors': report_data.get('factors', [])
+                            }
+                
+                # 週全体の追加情報を店舗ごと・週ごとに保存
+                set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'topics', existing_report.get('topics', ''))
+                set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'impact_day', existing_report.get('impact_day', ''))
+                set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'quantitative_data', existing_report.get('quantitative_data', ''))
+                
+                # レポート出力データも店舗・週ごとに保存
+                set_weekly_report_output(store_name, st.session_state['selected_monday'], 'generated_report', existing_report.get('generated_report', {}))
+                set_weekly_report_output(store_name, st.session_state['selected_monday'], 'modified_report', existing_report.get('modified_report'))
+                set_weekly_report_output(store_name, st.session_state['selected_monday'], 'report_id', existing_report.get('id'))
+            else:
+                # データが存在しない場合は空のデータ構造を初期化
+                if store_name not in st.session_state['daily_reports_input']:
+                    st.session_state['daily_reports_input'][store_name] = {}
+                
+                # 週の7日間のデータを初期化（データが存在しない場合のみ）
+                monday_date = datetime.strptime(st.session_state['selected_monday'], '%Y-%m-%d').date()
+                for i in range(7):
+                    current_date = monday_date + timedelta(days=i)
+                    date_str = current_date.strftime('%Y-%m-%d')
+                    if date_str not in st.session_state['daily_reports_input'][store_name]:
+                        st.session_state['daily_reports_input'][store_name][date_str] = {"trend": "", "factors": []}
+        
+        # 後方互換性のため、最初の店舗のデータで旧形式も更新
+        if store_names:
+            first_store = store_names[0]
+            first_store_data = get_weekly_additional_data(first_store, st.session_state['selected_monday'], 'topics')
+            if first_store_data or not st.session_state.get('topics_loaded_for_week', False):
+                st.session_state['topics_input'] = get_weekly_additional_data(first_store, st.session_state['selected_monday'], 'topics')
+                st.session_state['impact_day_input'] = get_weekly_additional_data(first_store, st.session_state['selected_monday'], 'impact_day')
+                st.session_state['quantitative_data_input'] = get_weekly_additional_data(first_store, st.session_state['selected_monday'], 'quantitative_data')
+                st.session_state['generated_report_output'] = get_weekly_report_output(first_store, st.session_state['selected_monday'], 'generated_report')
+                st.session_state['modified_report_output'] = get_weekly_report_output(first_store, st.session_state['selected_monday'], 'modified_report')
+                st.session_state['report_id_to_edit'] = get_weekly_report_output(first_store, st.session_state['selected_monday'], 'report_id')
+        
+        # 復元完了フラグを設定
+        st.session_state['data_restored_for_week'][restore_key] = True
+        st.session_state['topics_loaded_for_week'] = True
+    
     # まず、ストア選択タブの現在のインデックスをセッションステートに保持
     if 'active_tab_index' not in st.session_state:
         st.session_state['active_tab_index'] = 0 # デフォルトは最初のタブ (RAY)
-
-    # 既存レポートをロードする前に、現在選択されている店舗名を取得
-    # 初期表示時や日付変更時に、選択店舗のレポートが読み込まれるように調整
-    # ただし、タブのインデックスが変更された場合は、そのタブの店舗名に追従
-    # ここでは、`selected_store_for_report` と `active_tab_index` の同期を強化
-    
-    # 各店舗の既存レポートを個別に読み込み（統一された方法）
-    for store_name in store_names:
-        store_id = db_manager.get_store_id_by_name(store_name)
-        existing_report = db_manager.get_weekly_report(store_id, st.session_state['selected_monday'])
-        
-        if existing_report:
-            # 新しいデータ構造（店舗キーなし）で直接日付データを設定
-            if existing_report.get('daily_reports'):
-                # 週選択時は常にデータベースから最新データを読み込む
-                st.session_state['daily_reports_input'][store_name] = existing_report['daily_reports']
-            
-            # 週全体の追加情報を店舗ごと・週ごとに保存
-            set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'topics', existing_report.get('topics', ''))
-            set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'impact_day', existing_report.get('impact_day', ''))
-            set_weekly_additional_data(store_name, st.session_state['selected_monday'], 'quantitative_data', existing_report.get('quantitative_data', ''))
-            
-            # レポート出力データも店舗・週ごとに保存
-            set_weekly_report_output(store_name, st.session_state['selected_monday'], 'generated_report', existing_report.get('generated_report', {}))
-            set_weekly_report_output(store_name, st.session_state['selected_monday'], 'modified_report', existing_report.get('modified_report'))
-            set_weekly_report_output(store_name, st.session_state['selected_monday'], 'report_id', existing_report.get('id'))
-            
-            # 最初に見つかった店舗のその他データも読み込み（レポート出力データは共通→個別管理に変更）
-            if not st.session_state.get('topics_loaded_for_week'):
-                # 後方互換性のため旧形式も更新（現在選択中の店舗のデータで更新）
-                if store_name == st.session_state.get('selected_store_for_report', store_names[0]):
-                    st.session_state['topics_input'] = existing_report.get('topics', '')
-                    st.session_state['impact_day_input'] = existing_report.get('impact_day', '')
-                    st.session_state['quantitative_data_input'] = existing_report.get('quantitative_data', '')
-                    st.session_state['generated_report_output'] = existing_report.get('generated_report', {})
-                    st.session_state['modified_report_output'] = existing_report.get('modified_report')
-                    st.session_state['report_id_to_edit'] = existing_report.get('id')
-                st.session_state['topics_loaded_for_week'] = True
-        else:
-            # データがない場合は空の構造で初期化
-            if store_name not in st.session_state['daily_reports_input']:
-                st.session_state['daily_reports_input'][store_name] = {
-                    (monday_of_week + timedelta(days=i)).strftime('%Y-%m-%d'): {"trend": "", "factors": []} for i in range(7)
-                }
             
     # 既存レポートがロードされたかチェックして表示
     loaded_stores = []
@@ -1987,6 +2078,10 @@ def show_report_creation_page():
                         
                         # データベースにも最新のレポートを保存
                         store_id = db_manager.get_store_id_by_name(selected_store_name)
+                        
+                        # レポート生成時も入力データを保護（クリアしない）
+                        st.session_state['preserve_input_data'] = True
+                        
                         save_draft_data(
                             selected_store_name,
                             current_monday_str,
