@@ -2342,38 +2342,16 @@ def show_report_creation_page():
 
 
 def show_report_history_page():
-    st.title("📚 レポート履歴")
+    st.title("� レポートダウンロード")
     st.markdown("---")
 
-    st.info("ここでは、これまでに作成・保存された週次レポートの一覧を確認できます。")
-
-    # デバッグ情報の追加
-    with st.expander("🔧 デバッグ情報", expanded=False):
-        try:
-            # データベースファイルの存在確認
-            import os
-            db_path = "apparel_reports.db"
-            st.write(f"データベースファイル存在: {os.path.exists(db_path)}")
-            if os.path.exists(db_path):
-                st.write(f"データベースファイルサイズ: {os.path.getsize(db_path)} bytes")
-            
-            # 店舗情報の確認
-            all_stores_debug = db_manager.get_all_stores()
-            st.write(f"登録店舗数: {len(all_stores_debug)}")
-            st.write(f"店舗リスト: {all_stores_debug}")
-            
-            # レポート総数の確認
-            all_reports_debug = db_manager.get_all_weekly_reports()
-            st.write(f"総レポート数: {len(all_reports_debug)}")
-            
-        except Exception as e:
-            st.error(f"デバッグ情報取得エラー: {str(e)}")
+    st.info("週次レポートのダウンロード専用ページです。詳細な確認は「週次レポート作成」ページをご利用ください。")
 
     all_stores = db_manager.get_all_stores()
     store_names = [s[1] for s in all_stores]
     store_id_map = {s[1]: s[0] for s in all_stores}
 
-    selected_store_name = st.selectbox("表示する店舗を選択:", ["全店舗"] + store_names)
+    selected_store_name = st.selectbox("ダウンロード対象の店舗を選択:", ["全店舗"] + store_names)
 
     if selected_store_name == "全店舗":
         reports = db_manager.get_all_weekly_reports()
@@ -2382,17 +2360,12 @@ def show_report_history_page():
         reports = db_manager.get_all_weekly_reports(selected_store_id)
 
     if not reports:
-        st.warning("表示するレポートがありません。")
-        # デバッグ情報をより詳細に表示
-        st.info("💡 トラブルシューティング:")
-        st.write("- データベースに週次レポートが保存されていない可能性があります")
-        st.write("- 「週次レポート作成」ページで一度レポートを生成・保存してください")
-        st.write("- 他のデバイスからアクセスしている場合、データベースファイルが同期されていない可能性があります")
+        st.warning("ダウンロード可能なレポートがありません。")
+        st.info("💡 ヒント: 「週次レポート作成」ページでレポートを生成・保存してください。")
         return
 
     report_data = []
     for r in reports:
-        # store_name は既に DBManager で追加されているはず
         try:
             store_name = db_manager.get_store_name_by_id(r['store_id'])
         except Exception as e:
@@ -2404,20 +2377,18 @@ def show_report_history_page():
             "週次レポート (月曜日)": r['monday_date'],
             "最終更新日時": datetime.fromisoformat(r['timestamp']).strftime('%Y/%m/%d %H:%M'),
             "AI生成済み": "はい" if r['has_generated'] else "いいえ",
-            "修正済み": "はい" if r['has_modified'] else "いいえ",
-            "ダウンロード": f"Download_{r['id']}" # ダミーの列名
+            "修正済み": "はい" if r['has_modified'] else "いいえ"
         })
     
     df = pd.DataFrame(report_data)
-
     st.dataframe(df.set_index('ID'), use_container_width=True)
 
-    # レポート詳細表示・ダウンロード
-    st.subheader("レポートの詳細表示とダウンロード")
+    # ダウンロード機能
+    st.subheader("📥 レポートダウンロード")
     report_ids = [r['id'] for r in reports]
     
     if report_ids:
-        selected_report_id = st.selectbox("詳細を表示・ダウンロードするレポートのIDを選択してください:", report_ids)
+        selected_report_id = st.selectbox("ダウンロードするレポートのIDを選択してください:", report_ids)
 
         if selected_report_id:
             # IDの型を確認・修正（必要に応じて整数に変換）
@@ -2450,13 +2421,13 @@ def show_report_history_page():
                 return
                 
             if full_report:
-                st.markdown(f"### レポートID: {full_report['id']} - {db_manager.get_store_name_by_id(full_report['store_id'])}店 - 週次: {full_report['monday_date']}")
-                st.write(f"最終更新日時: {datetime.fromisoformat(full_report['timestamp']).strftime('%Y/%m/%d %H:%M')}")
+                store_name = db_manager.get_store_name_by_id(full_report['store_id'])
+                st.success(f"✅ 選択: {store_name}店 - {full_report['monday_date']} ({datetime.fromisoformat(full_report['timestamp']).strftime('%Y/%m/%d %H:%M')})")
 
                 # ダウンロード用のデータ整形（エラーハンドリング強化）
                 export_data = {
                     "レポート対象週の月曜日": full_report.get('monday_date', ''),
-                    "店舗名": db_manager.get_store_name_by_id(full_report.get('store_id', 0)),
+                    "店舗名": store_name,
                     "TOPICS": full_report.get('topics', ''),
                     "インパクト大": full_report.get('impact_day', ''),
                     "定量データ": full_report.get('quantitative_data', '')
@@ -2484,179 +2455,61 @@ def show_report_history_page():
                 # 日次レポートの詳細を安全に追加
                 daily_reports = full_report.get('daily_reports', {})
                 if isinstance(daily_reports, dict):
-                    for store_name, dates_data in daily_reports.items():
+                    for store_name_key, dates_data in daily_reports.items():
                         if isinstance(dates_data, dict):
                             for date_str, report_data in dates_data.items():
                                 try:
                                     if isinstance(report_data, dict):
-                                        export_data[f"日次動向_{store_name}_{date_str}"] = str(report_data.get('trend', ''))
+                                        export_data[f"日次動向_{store_name_key}_{date_str}"] = str(report_data.get('trend', ''))
                                         factors = report_data.get('factors', [])
-                                        export_data[f"日次要因_{store_name}_{date_str}"] = ", ".join(factors) if isinstance(factors, list) else str(factors)
+                                        export_data[f"日次要因_{store_name_key}_{date_str}"] = ", ".join(factors) if isinstance(factors, list) else str(factors)
                                     else:
-                                        export_data[f"日次動向_{store_name}_{date_str}"] = ''
-                                        export_data[f"日次要因_{store_name}_{date_str}"] = ''
+                                        export_data[f"日次動向_{store_name_key}_{date_str}"] = ''
+                                        export_data[f"日次要因_{store_name_key}_{date_str}"] = ''
                                 except Exception as e:
                                     print(f"日次データ処理エラー: {e}")
-                                    export_data[f"日次動向_{store_name}_{date_str}"] = ''
-                                    export_data[f"日次要因_{store_name}_{date_str}"] = ''
+                                    export_data[f"日次動向_{store_name_key}_{date_str}"] = ''
+                                    export_data[f"日次要因_{store_name_key}_{date_str}"] = ''
 
                 df_export = pd.DataFrame([export_data])
                 
-                # Excelダウンロード（エラーハンドリング付き）
-                try:
-                    output = BytesIO()
-                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                        df_export.to_excel(writer, index=False, sheet_name='レポート')
-                    excel_data = output.getvalue()
-                    
-                    st.download_button(
-                        label="📊 レポートをExcelでダウンロード",
-                        data=excel_data,
-                        file_name=f"週次レポート_{full_report['monday_date']}_{db_manager.get_store_name_by_id(full_report['store_id'])}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-                except ImportError:
-                    st.warning("⚠️ Excel形式でのダウンロードができません。CSV形式でダウンロードしてください。")
-                    # CSVダウンロードをフォールバックとして提供
+                # ダウンロードボタンを横並びで配置
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Excelダウンロード（エラーハンドリング付き）
+                    try:
+                        output = BytesIO()
+                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                            df_export.to_excel(writer, index=False, sheet_name='レポート')
+                        excel_data = output.getvalue()
+                        
+                        st.download_button(
+                            label="📊 Excelでダウンロード",
+                            data=excel_data,
+                            file_name=f"週次レポート_{full_report['monday_date']}_{store_name}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                    except ImportError:
+                        st.warning("⚠️ Excel形式が利用できません")
+                
+                with col2:
+                    # CSVダウンロード
                     csv_data = df_export.to_csv(index=False, encoding='utf-8-sig')
                     st.download_button(
-                        label="📄 レポートをCSVでダウンロード",
+                        label="📄 CSVでダウンロード",
                         data=csv_data,
-                        file_name=f"週次レポート_{full_report['monday_date']}_{db_manager.get_store_name_by_id(full_report['store_id'])}.csv",
-                        mime="text/csv"
+                        file_name=f"週次レポート_{full_report['monday_date']}_{store_name}.csv",
+                        mime="text/csv",
+                        use_container_width=True
                     )
-
-                st.markdown("#### レポート内容プレビュー")
                 
-                # 修正レポートの表示
-                modified_report = full_report.get('modified_report')
-                if modified_report and isinstance(modified_report, dict):
-                    st.subheader("--- 最終修正版レポート ---")
-                    st.markdown("**週全体の動向と要因:**")
-                    st.write(modified_report.get('trend', ''))
-                    st.markdown("**主な要因:**")
-                    factors = modified_report.get('factors', [])
-                    if isinstance(factors, list):
-                        for factor in factors:
-                            st.write(f"- {factor}")
-                    
-                    questions = modified_report.get('questions', [])
-                    if questions and isinstance(questions, list):
-                        st.markdown("**AIへの質問:**")
-                        for q in questions:
-                                st.write(f"- {q}")
-                    
-                    edit_reason = modified_report.get('edit_reason')
-                    if edit_reason:
-                        st.markdown("**修正理由:**")
-                        st.write(edit_reason)
-                
-                # 生成レポートの表示
-                generated_report = full_report.get('generated_report')
-                if generated_report and isinstance(generated_report, dict):
-                    st.subheader("--- AI生成レポート (オリジナル) ---")
-                    st.markdown("**週全体の動向と要因:**")
-                    st.write(generated_report.get('trend', ''))
-                    st.markdown("**主な要因:**")
-                    factors = generated_report.get('factors', [])
-                    if isinstance(factors, list):
-                        for factor in factors:
-                            st.write(f"- {factor}")
-                    
-                    questions = generated_report.get('questions', [])
-                    if questions and isinstance(questions, list):
-                        st.markdown("**AIからの質問:**")
-                        for q in questions:
-                            st.write(f"- {q}")
-                
-                st.subheader("--- 入力データ ---")
-                st.markdown("**日次レポート:**")
-                daily_reports = full_report.get('daily_reports', {})
-                if daily_reports and isinstance(daily_reports, dict):
-                    # 単一店舗のレポートの場合（正しい構造）
-                    if all(key.count('-') == 2 and len(key) == 10 for key in daily_reports.keys() if isinstance(key, str)):
-                        store_name = db_manager.get_store_name_by_id(full_report.get('store_id', 0))
-                        st.markdown(f"**{store_name}店**")
-                        has_data = False
-                        for date_str, report_data in daily_reports.items():
-                            try:
-                                if isinstance(report_data, dict):
-                                    trend_text = report_data.get('trend', '').strip()
-                                    factors_list = report_data.get('factors', [])
-                                    
-                                    # 動向または要因のいずれかにデータがある場合のみ表示
-                                    if trend_text or (factors_list and len(factors_list) > 0):
-                                        has_data = True
-                                        if isinstance(factors_list, list):
-                                            factors_text = ', '.join(factors_list) if factors_list else '要因なし'
-                                        else:
-                                            factors_text = str(factors_list) if factors_list else '要因なし'
-                                        
-                                        st.markdown(f"  - **{date_str}**")
-                                        if trend_text:
-                                            st.markdown(f"    動向: {trend_text}")
-                                        if factors_list:
-                                            st.markdown(f"    要因: {factors_text}")
-                                        else:
-                                            st.markdown(f"    要因: 要因なし")
-                                else:
-                                    st.markdown(f"  - {date_str} データ形式エラー")
-                            except Exception as e:
-                                st.markdown(f"  - {date_str} データ読み込みエラー")
-                        
-                        if not has_data:
-                            st.markdown("  - この店舗には入力済みの日次データがありません")
-                    else:
-                        # 複数店舗データが混在している場合（古い構造）
-                        for store_key, dates_data in daily_reports.items():
-                            # 店舗名のキーのみ処理
-                            if not (isinstance(store_key, str) and len(store_key) == 10 and store_key.count('-') == 2):
-                                st.markdown(f"**{store_key}店**")
-                                if isinstance(dates_data, dict):
-                                    has_data = False
-                                    for date_str, report_data in dates_data.items():
-                                        try:
-                                            if isinstance(report_data, dict):
-                                                trend_text = report_data.get('trend', '').strip()
-                                                factors_list = report_data.get('factors', [])
-                                                
-                                                # 動向または要因のいずれかにデータがある場合のみ表示
-                                                if trend_text or (factors_list and len(factors_list) > 0):
-                                                    has_data = True
-                                                    if isinstance(factors_list, list):
-                                                        factors_text = ', '.join(factors_list) if factors_list else '要因なし'
-                                                    else:
-                                                        factors_text = str(factors_list) if factors_list else '要因なし'
-                                                    
-                                                    st.markdown(f"  - **{date_str}**")
-                                                    if trend_text:
-                                                        st.markdown(f"    動向: {trend_text}")
-                                                    if factors_list:
-                                                        st.markdown(f"    要因: {factors_text}")
-                                                    else:
-                                                        st.markdown(f"    要因: 要因なし")
-                                            else:
-                                                st.markdown(f"  - {date_str} データ形式エラー")
-                                        except Exception as e:
-                                            st.markdown(f"  - {date_str} データ読み込みエラー")
-                                    
-                                    if not has_data:
-                                        st.markdown("  - この店舗には入力済みの日次データがありません")
-                                else:
-                                    st.markdown("  - データ構造エラー")
-                else:
-                    st.markdown("日次レポートデータがありません。")
-
-                st.markdown("**TOPICS:**")
-                st.write(full_report.get('topics', 'N/A'))
-                st.markdown("**インパクト大:**")
-                st.write(full_report.get('impact_day', 'N/A'))
-                st.markdown("**定量データ:**")
-                st.write(full_report.get('quantitative_data', 'N/A'))
+                st.info("💡 レポートの詳細確認や修正は「週次レポート作成」ページで行えます。")
             else:
                 st.warning("選択されたレポートの詳細を読み込めませんでした。")
     else:
-        st.info("レポート履歴がありません。")
+        st.info("ダウンロード可能なレポートがありません。")
 
 def show_settings_page():
     st.title("⚙️ 設定")
@@ -2718,11 +2571,11 @@ def show_settings_page():
 # メインナビゲーション
 st.sidebar.title("ナビゲーション")
 
-selection = st.sidebar.radio("Go to", ["週次レポート作成", "レポート履歴", "設定"])
+selection = st.sidebar.radio("Go to", ["週次レポート作成", "レポートダウンロード", "設定"])
 
 if selection == "週次レポート作成":
     show_report_creation_page()
-elif selection == "レポート履歴":
+elif selection == "レポートダウンロード":
     show_report_history_page()
 elif selection == "設定":
     show_settings_page()
